@@ -1,0 +1,12 @@
+# bin/ es local: yt-dlp.exe, ffmpeg.exe, lo que se descarga (bin/music) y cualquier otra
+# cosa que pongas ahí. Del repo solo se versiona la versión de consola.
+bin/*
+!bin/download.bat
+
+# Estado de la app en cada máquina
+app/settings.json
+app/server.log
+
+# Windows
+Thumbs.db
+desktop.ini
