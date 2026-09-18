@@ -84,8 +84,10 @@
   }
   .url-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
   .field-error { margin: -8px 2px 0; color: var(--err); font-size: 13px; }
-  .convert { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: -6px 2px 0; }
-  .convert .btn.link { font-size: 13.5px; }
+  .local { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: -6px 2px 0; }
+  .local .btn.link { font-size: 13.5px; }
+  .key-hint { margin: 6px 0 0; }
+  .key-hint a { color: var(--accent-text); }
 
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
   .options { padding: 4px 16px; }
@@ -133,6 +135,9 @@
   }
   .thumb { width: 96px; aspect-ratio: 16 / 9; border-radius: 7px; background: var(--sunken); overflow: hidden; }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .job[data-kind="transcribe"] .thumb {
+    background: var(--sunken) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9a93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h8l4 4v14H6z'/%3E%3Cpath d='M9 11h6M9 15h6M9 19h4'/%3E%3C/svg%3E") center / 26px no-repeat;
+  }
   .job[data-kind="convert"] .thumb {
     background: var(--sunken) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9a93' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2'/%3E%3C/svg%3E") center / 28px no-repeat;
   }
@@ -193,9 +198,10 @@
     <button class="btn primary" type="submit">Descargar</button>
   </form>
   <p id="url-error" class="field-error" role="alert" hidden></p>
-  <p class="convert">
-    <button type="button" class="btn link" id="convert">Sacarle el audio a un video de la compu…</button>
-    <span class="note">MP3 liviano para voz (mono, 16 kHz); queda al lado del video.</span>
+  <p class="local">
+    <span class="note">Con archivos de la compu:</span>
+    <button type="button" class="btn link" id="convert" title="MP3 liviano para voz (mono, 16 kHz, 32 kbps), al lado del video">Sacarle el audio a un video…</button>
+    <button type="button" class="btn link" id="transcribe" title="Deja un .txt con el texto al lado del archivo">Transcribir a texto…</button>
   </p>
 
   <section class="card options" aria-label="Opciones">
@@ -231,6 +237,16 @@
         <button type="button" class="btn" id="open">Abrir</button>
       </div>
     </div>
+    <div class="opt top">
+      <label class="label" for="groqKey">Transcribir</label>
+      <div>
+        <div class="folder">
+          <input id="groqKey" type="password" spellcheck="false" autocomplete="off" placeholder="Pegá tu clave de Groq">
+          <button type="button" class="btn" id="saveKey">Guardar</button>
+        </div>
+        <p class="note key-hint">Usa Whisper large-v3 en Groq, gratis: creá la clave en <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. El audio se sube a Groq.</p>
+      </div>
+    </div>
   </section>
 
   <section aria-label="Descargas">
@@ -263,6 +279,7 @@
       <div class="err" hidden><span class="err-msg"></span><span class="err-hint"></span></div>
     </div>
     <div class="actions">
+      <button type="button" class="btn sm" data-act="open">Abrir</button>
       <button type="button" class="btn sm" data-act="reveal">Mostrar</button>
       <button type="button" class="btn sm" data-act="retry">Reintentar</button>
       <button type="button" class="btn sm" data-act="cancel">Cancelar</button>
@@ -285,7 +302,7 @@ const QUALITIES = {
 const ACTIONS = {
   queued: ['remove'],
   running: ['cancel', 'log'],
-  done: ['reveal', 'log', 'remove'],
+  done: ['open', 'reveal', 'log', 'remove'],
   error: ['retry', 'log', 'remove'],
   canceled: ['retry', 'remove'],
 };
@@ -353,6 +370,7 @@ function renderSettings() {
   const dir = $('#outputDir');
   if (document.activeElement !== dir) dir.value = settings.outputDir;
   dir.title = settings.outputDir;
+  $('#groqKey').placeholder = settings.groqKeySet ? 'Clave guardada ✓ (pegá otra para cambiarla)' : 'Pegá tu clave de Groq';
 }
 
 async function setOption(patch) {
@@ -373,6 +391,7 @@ async function setOption(patch) {
 
 function badge({ kind, opts }) {
   if (kind === 'convert') return 'MP3 voz';
+  if (kind === 'transcribe') return 'Texto';
   if (opts.format === 'mp3') return `MP3 ${opts.audioQuality === '0' ? 'VBR' : opts.audioQuality.replace('K', 'k')}`;
   if (opts.format === 'mp4') return `MP4 ${opts.videoQuality === 'best' ? 'máx.' : opts.videoQuality + 'p'}`;
   return 'M4A';
@@ -400,6 +419,7 @@ function statusText(job) {
     }
     case 'error':
       if (job.kind === 'convert') return 'No se pudo convertir';
+      if (job.kind === 'transcribe') return 'No se pudo transcribir';
       return job.files.length ? `Terminó con errores (${job.files.length} se bajaron bien)` : 'No se pudo descargar';
     case 'canceled':
       return 'Cancelado';
@@ -435,7 +455,11 @@ function renderJob(job) {
   el.querySelector('.err').hidden = job.status !== 'error';
   el.querySelector('.err-msg').textContent = job.error || '';
   el.querySelector('.err-hint').textContent = job.hint || '';
-  for (const button of el.querySelectorAll('[data-act]')) button.hidden = !ACTIONS[job.status].includes(button.dataset.act);
+  for (const button of el.querySelectorAll('[data-act]')) {
+    const { act } = button.dataset;
+    // "Abrir" solo para transcripciones: abre el .txt en el Bloc de notas.
+    button.hidden = !ACTIONS[job.status].includes(act) || (act === 'open' && job.kind !== 'transcribe');
+  }
 
   renderLog(job.id);
   renderListState();
@@ -594,6 +618,27 @@ async function withDialog(button, path) {
 }
 $('#pick').addEventListener('click', () => withDialog($('#pick'), '/api/pick-folder'));
 $('#convert').addEventListener('click', () => withDialog($('#convert'), '/api/convert'));
+$('#transcribe').addEventListener('click', () => {
+  if (settings?.groqKeySet) return withDialog($('#transcribe'), '/api/transcribe');
+  toast('Primero pegá tu clave de Groq en Opciones → Transcribir (es gratis).');
+  $('#groqKey').focus();
+});
+
+async function saveKey() {
+  const input = $('#groqKey');
+  $('#saveKey').disabled = true;
+  try {
+    await api('/api/groq-key', { key: input.value });
+    input.value = '';
+    toast('Clave guardada: ya podés transcribir.');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    $('#saveKey').disabled = false;
+  }
+}
+$('#saveKey').addEventListener('click', saveKey);
+$('#groqKey').addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
 $('#open').addEventListener('click', () => api('/api/open-folder').catch(err => toast(err.message)));
 $('#clear').addEventListener('click', () => api('/api/jobs/clear').catch(err => toast(err.message)));
 $('#update').addEventListener('click', () => api('/api/update').catch(err => toast(err.message)));

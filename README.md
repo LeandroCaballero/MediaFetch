@@ -11,7 +11,8 @@ Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y v
 - Limpia los títulos: saca "(Official Video)", "[Lyrics]", "(Video Oficial)", etc.
 - Playlists enteras, en una carpeta y numeradas.
 - Álbumes subidos como un solo video: si tiene capítulos, además arma una pista por canción, con su título y número.
-- Saca el audio de videos de la compu (.wmv, .mp4, .mkv…) a un MP3 liviano para voz (mono, 16 kHz, 32 kbps), ideal para transcribir. Queda al lado del video.
+- Saca el audio de videos de la compu (.wmv, .mp4, .mkv…) a un MP3 liviano para voz (mono, 16 kHz, 32 kbps). Queda al lado del video.
+- Transcribe videos y audios de la compu con Whisper large-v3 (vía Groq, gratis): deja un `.txt` al lado del archivo, con la hora de cada frase.
 - Cola de descargas con progreso; se pueden cancelar y reintentar.
 - Mantiene yt-dlp actualizado solo (una vez por día), porque YouTube cambia seguido y las versiones viejas dejan de andar.
 
@@ -30,6 +31,16 @@ Doble clic en **`Bajalo.bat`**. Se abre la ventana (con Edge, Chrome o Brave; si
 Cuando cerrás la ventana, Bajalo se cierra solo. Si quedaban descargas, antes las termina.
 
 `bin/download.bat` es la versión de consola: pide el link y baja el MP3 a `bin/music`, sin opciones.
+
+## Transcribir
+
+Bajalo transcribe con Whisper large-v3 a través de [Groq](https://console.groq.com), que es gratis con límites (unas 2 horas de audio por hora).
+
+1. Creá una cuenta y una clave en [console.groq.com/keys](https://console.groq.com/keys).
+2. Pegala en **Opciones → Transcribir** y tocá **Guardar**.
+3. Tocá **Transcribir a texto…** y elegí videos o audios. El `.txt` queda al lado de cada archivo.
+
+La clave se guarda solo en `app/settings.json`, que no se sube al repo. Tené en cuenta que el audio se sube a los servidores de Groq.
 
 ## Cómo está hecho
 

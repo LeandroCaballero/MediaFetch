@@ -15,7 +15,9 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { spawn, spawnSync } = require('node:child_process');
+const { setTimeout: wait } = require('node:timers/promises');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.BAJALO_PORT) || 17865;
@@ -81,12 +83,17 @@ function mergeOptions(base, input) {
 }
 
 let lastUpdateCheck = 0;
+// La clave de Groq se guarda en settings.json (que no se sube al repo) pero nunca se manda a la página.
+let groqKey = '';
 let settings = loadSettings();
+
+const publicSettings = () => ({ ...settings, groqKeySet: Boolean(groqKey) });
 
 function loadSettings() {
   try {
     const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
     lastUpdateCheck = Number(saved.lastUpdateCheck) || 0;
+    groqKey = typeof saved.groqKey === 'string' ? saved.groqKey : '';
     return mergeOptions(DEFAULTS, saved);
   } catch {
     return { ...DEFAULTS };
@@ -95,7 +102,7 @@ function loadSettings() {
 
 function saveSettings() {
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...settings, lastUpdateCheck }, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...settings, lastUpdateCheck, groqKey }, null, 2));
   } catch (e) {
     log(`No se pudieron guardar las opciones: ${e.message}`);
   }
@@ -141,7 +148,9 @@ function buildArgs(job) {
     // Sin un motor de JavaScript, YouTube responde 403 al bajar, y yt-dlp solo busca Deno por
     // defecto: le pasamos el mismo Node que corre este servidor.
     '--js-runtimes', `node:${process.execPath}`,
-    '--ffmpeg-location', BIN_DIR,
+    // La ruta del .exe y no la carpeta: con la carpeta, yt-dlp busca "bin\ffmpeg" sin extensión y
+    // se confunde si hay una carpeta con ese nombre.
+    '--ffmpeg-location', FFMPEG,
     ...MACHINE_OUTPUT,
     '--windows-filenames',
     '-P', opts.outputDir,
@@ -214,6 +223,7 @@ function startJob(job) {
   active = job;
   job.status = 'running';
   if (job.kind === 'convert') return startConversion(job);
+  if (job.kind === 'transcribe') return startTranscription(job);
   job.stage = 'Buscando el video';
   flush(job);
   try {
@@ -231,32 +241,45 @@ function startJob(job) {
   proc.on('close', code => finishJob(job, code));
 }
 
-/** Saca el audio de un video de la compu: MP3 mono de 16 kHz y 32 kbps, liviano y claro para voz. */
-function startConversion(job) {
+// Los parámetros del comando de siempre: MP3 mono de 16 kHz y 32 kbps, liviano y claro para voz.
+const VOICE_MP3 = ['-vn', '-ac', '1', '-ar', '16000', '-b:a', '32k'];
+
+/** Saca el audio de un video de la compu y lo deja al lado, como MP3 de voz. */
+async function startConversion(job) {
   const output = freeName(replaceExt(job.source, '.mp3'));
   job._.temp.add(output);
   job.stage = 'Sacando el audio';
   flush(job);
-  const args = [
-    '-hide_banner', '-nostdin', '-n', '-i', job.source,
-    '-vn', '-ac', '1', '-ar', '16000', '-b:a', '32k',
-    '-progress', 'pipe:1', '-nostats', output,
-  ];
-  log(`Conversión ${job.id}: ffmpeg ${args.join(' ')}`);
-  const proc = spawn(FFMPEG, args, { windowsHide: true });
-  job._.proc = proc;
-  readLines(proc.stdout, line => handleConversionLine(job, line));
-  readLines(proc.stderr, line => handleConversionLine(job, line));
-  proc.on('error', e => finishJob(job, -1, `No se pudo ejecutar ffmpeg: ${e.message}`));
-  proc.on('close', code => {
-    if (code === 0) {
-      job.files.push(output);
-    } else if (job.status !== 'canceled') {
-      const noAudio = job._.log.some(line => /does not contain any stream|matches no streams/.test(line));
-      job.error ??= noAudio ? 'Ese archivo no tiene audio.' : job._.lastLine;
-    }
-    finishJob(job, code);
+  const code = await runFfmpeg(job, ['-n', '-i', job.source, ...VOICE_MP3, output]);
+  if (code === 0) job.files.push(output);
+  else if (job.status !== 'canceled') job.error ??= ffmpegError(job, code);
+  finishJob(job, code);
+}
+
+/** Corre ffmpeg como paso de una tarea (con progreso y cancelable) y devuelve su código de salida. */
+function runFfmpeg(job, args) {
+  const fullArgs = ['-hide_banner', '-nostdin', '-progress', 'pipe:1', '-nostats', ...args];
+  log(`Tarea ${job.id}: ffmpeg ${fullArgs.join(' ')}`);
+  return new Promise(resolve => {
+    const proc = spawn(FFMPEG, fullArgs, { windowsHide: true });
+    job._.proc = proc;
+    readLines(proc.stdout, line => handleConversionLine(job, line));
+    readLines(proc.stderr, line => handleConversionLine(job, line));
+    proc.on('error', e => {
+      job._.proc = null;
+      job._.lastLine = `No se pudo ejecutar ffmpeg: ${e.message}`;
+      resolve(-1);
+    });
+    proc.on('close', code => {
+      job._.proc = null;
+      resolve(code);
+    });
   });
+}
+
+function ffmpegError(job, code) {
+  if (job._.log.some(line => /does not contain any stream|matches no streams/.test(line))) return 'Ese archivo no tiene audio.';
+  return job._.lastLine || `ffmpeg terminó con código ${code}.`;
 }
 
 function handleConversionLine(job, line) {
@@ -287,6 +310,107 @@ function freeName(file) {
   let candidate = file;
   for (let i = 2; fs.existsSync(candidate); i++) candidate = replaceExt(file, ` (${i})${ext}`);
   return candidate;
+}
+
+// ---------------------------------------------------------------------------
+// Transcripción con Groq: Whisper large-v3 en la nube, gratis con límites (console.groq.com)
+
+const GROQ_API = process.env.BAJALO_GROQ_API || 'https://api.groq.com/openai/v1'; // se cambia para pruebas
+const GROQ_MODEL = 'whisper-large-v3';   // el más preciso de los que ofrece Groq
+const LANGUAGE = 'es';                   // fijarlo evita que Whisper adivine mal el idioma
+const PART_SECONDS = 30 * 60;            // partes de 30 min (~7 MB): el límite gratis es 25 MB por archivo
+
+const clock = seconds => new Date(Math.round(seconds) * 1000).toISOString().slice(11, 19);
+
+// Whisper a veces inventa texto en los silencios ("Subtítulos realizados por la comunidad de
+// Amara.org"): los descartamos con el mismo criterio que usa Whisper para detectar silencio.
+const isSilence = segment => segment.no_speech_prob > 0.6 && segment.avg_logprob < -1;
+
+/** Pasa el audio a MP3 de voz en partes, las transcribe con Groq y deja un .txt al lado del archivo. */
+async function startTranscription(job) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bajalo-'));
+  job._.abort = new AbortController();
+  try {
+    job.stage = 'Preparando el audio';
+    flush(job);
+    const code = await runFfmpeg(job, [
+      '-i', job.source, ...VOICE_MP3,
+      '-f', 'segment', '-segment_time', String(PART_SECONDS), '-reset_timestamps', '1', path.join(dir, 'parte%03d.mp3'),
+    ]);
+    if (job.status === 'canceled') return finishJob(job, 1);
+    if (code !== 0) return finishJob(job, code, ffmpegError(job, code));
+
+    const parts = fs.readdirSync(dir).sort().map(name => path.join(dir, name));
+    const lines = [];
+    let offset = 0;
+    for (const [i, part] of parts.entries()) {
+      Object.assign(job, {
+        stage: parts.length > 1 ? `Transcribiendo (parte ${i + 1} de ${parts.length})` : 'Transcribiendo',
+        percent: parts.length > 1 ? (100 * i) / parts.length : null,
+        eta: null,
+      });
+      flush(job);
+      const result = await transcribePart(job, part);
+      for (const segment of result.segments ?? []) {
+        const text = (segment.text || '').trim();
+        if (text && !isSilence(segment)) lines.push(`[${clock(offset + segment.start)}] ${text}`);
+      }
+      offset += result.duration ?? PART_SECONDS;
+    }
+    const output = freeName(replaceExt(job.source, '.txt'));
+    fs.writeFileSync(output, `${lines.join('\n')}\n`);
+    job.files.push(output);
+    finishJob(job, 0);
+  } catch (e) {
+    finishJob(job, 1, job.status === 'canceled' ? null : e.message);
+  } finally {
+    job._.abort = null;
+    fs.rm(dir, { recursive: true, force: true }, () => {});
+  }
+}
+
+/** Manda una parte a Groq. Si se llega al límite gratis, espera lo que Groq indica y reintenta. */
+async function transcribePart(job, file) {
+  const { signal } = job._.abort;
+  const stage = job.stage;
+  for (let attempt = 1; ; attempt++) {
+    const form = new FormData();
+    form.append('file', await fs.openAsBlob(file, { type: 'audio/mpeg' }), path.basename(file));
+    form.append('model', GROQ_MODEL);
+    form.append('language', LANGUAGE);
+    form.append('response_format', 'verbose_json');
+    form.append('temperature', '0');
+    let res;
+    try {
+      res = await fetch(`${GROQ_API}/audio/transcriptions`, {
+        method: 'POST', headers: { Authorization: `Bearer ${groqKey}` }, body: form, signal,
+      });
+    } catch (e) {
+      if (signal.aborted) throw e;
+      throw new Error('No me pude conectar con Groq. ¿Hay internet?');
+    }
+    if (res.ok) return res.json();
+    if (res.status === 401) throw new Error('La clave de Groq no es válida: revisala en Opciones.');
+    const detail = (await res.json().catch(() => null))?.error?.message || res.statusText;
+    if (res.status !== 429 || attempt > 5) throw new Error(`Groq respondió ${res.status}: ${detail}`);
+    const seconds = Number(res.headers.get('retry-after')) || 60;
+    Object.assign(job, { stage: `Esperando el límite gratis de Groq (${Math.ceil(seconds)} s)`, percent: null });
+    flush(job);
+    await wait(seconds * 1000, undefined, { signal });
+    job.stage = stage;
+    flush(job);
+  }
+}
+
+async function verifyGroqKey(key) {
+  let res;
+  try {
+    res = await fetch(`${GROQ_API}/models`, { headers: { Authorization: `Bearer ${key}` } });
+  } catch {
+    throw new HttpError(502, 'No me pude conectar con Groq para verificar la clave. ¿Hay internet?');
+  }
+  if (res.status === 401) throw new HttpError(400, 'Esa clave no es válida. Copiala de nuevo desde console.groq.com → API Keys.');
+  if (!res.ok) throw new HttpError(502, `Groq respondió ${res.status} al verificar la clave.`);
 }
 
 function readLines(stream, onLine) {
@@ -405,7 +529,7 @@ async function finishJob(job, code, error) {
     job.status = 'done';
   } else {
     job.status = 'error';
-    job.error ??= `${job.kind === 'convert' ? 'ffmpeg' : 'yt-dlp'} terminó con código ${code}.`;
+    job.error ??= `${job.kind === 'download' ? 'yt-dlp' : 'ffmpeg'} terminó con código ${code}.`;
     job.hint = job.kind === 'download' ? hintFor(job.error) : null;
     await removeLeftovers(job);
   }
@@ -474,9 +598,10 @@ async function tagTracks(job) {
 function cancelJob(job) {
   if (job.status === 'queued') {
     job.status = 'canceled';
-  } else if (job.status === 'running' && job._.proc) {
+  } else if (job.status === 'running' && (job._.proc || job._.abort)) {
     job.status = 'canceled';
-    killTree(job._.proc.pid);
+    if (job._.proc) killTree(job._.proc.pid);
+    job._.abort?.abort();
   }
   flush(job);
 }
@@ -494,10 +619,11 @@ function jobAction(job, action) {
       if (job.status === 'running') throw new HttpError(409, 'Cancelá la descarga antes de sacarla de la lista.');
       jobs.delete(job.id);
       return broadcast('remove', { id: job.id });
+    case 'open':
     case 'reveal': {
       const file = [...job.files].reverse().find(f => fs.existsSync(f));
       if (!file) throw new HttpError(404, 'No encuentro el archivo. ¿Lo moviste o lo borraste?');
-      return openInExplorer(file, { select: true });
+      return openInExplorer(file, { select: action === 'reveal' });
     }
     default:
       throw new HttpError(400, 'Acción desconocida.');
@@ -584,10 +710,10 @@ $dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
 }
 if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath }
 `;
-const PICK_VIDEOS_SCRIPT = `
+const PICK_FILES_SCRIPT = `
 $dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-  Title = 'Elegí los videos a los que querés sacarles el audio'
-  Filter = 'Videos y audios|*.wmv;*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v;*.flv;*.mpg;*.mpeg;*.3gp;*.m4a;*.wav;*.wma;*.ogg;*.flac|Todos los archivos|*.*'
+  Title = $env:BAJALO_TITLE
+  Filter = 'Videos y audios|*.wmv;*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v;*.flv;*.mpg;*.mpeg;*.3gp;*.mp3;*.m4a;*.wav;*.wma;*.ogg;*.opus;*.flac|Todos los archivos|*.*'
   Multiselect = $true
 }
 if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileNames }
@@ -652,7 +778,7 @@ function addLog(job, line) {
 function openEvents(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' });
   res.write('retry: 1500\n\n');
-  send(res, 'init', { settings, ytdlp, jobs: [...jobs.values()].map(j => ({ ...publicJob(j), log: j._.log })) });
+  send(res, 'init', { settings: publicSettings(), ytdlp, jobs: [...jobs.values()].map(j => ({ ...publicJob(j), log: j._.log })) });
   clients.add(res);
   clearTimeout(shutdownTimer);
   req.on('close', () => {
@@ -743,24 +869,38 @@ async function handleApi(pathname, body) {
       }
       settings = mergeOptions(settings, body);
       saveSettings();
-      broadcast('settings', settings);
-      return { settings };
+      broadcast('settings', publicSettings());
+      return {};
     }
     case '/api/pick-folder': {
       const [dir] = await showDialog(PICK_FOLDER_SCRIPT, { BAJALO_DIR: settings.outputDir });
       if (dir) {
         settings = mergeOptions(settings, { outputDir: dir });
         saveSettings();
-        broadcast('settings', settings);
+        broadcast('settings', publicSettings());
       }
-      return { settings };
+      return {};
     }
-    case '/api/convert': {
+    case '/api/groq-key': {
+      const key = String(body.key ?? '').trim();
+      if (!key) throw new HttpError(400, 'Pegá la clave primero.');
+      await verifyGroqKey(key);
+      groqKey = key;
+      saveSettings();
+      broadcast('settings', publicSettings());
+      return {};
+    }
+    case '/api/convert':
+    case '/api/transcribe': {
+      const kind = pathname === '/api/convert' ? 'convert' : 'transcribe';
+      if (kind === 'transcribe' && !groqKey) throw new HttpError(400, 'Primero pegá tu clave de Groq en Opciones → Transcribir.');
       // Sin `files`, se eligen con el diálogo de Windows.
-      const files = Array.isArray(body.files) ? body.files.map(String) : await showDialog(PICK_VIDEOS_SCRIPT);
+      const files = Array.isArray(body.files) ? body.files.map(String) : await showDialog(PICK_FILES_SCRIPT, {
+        BAJALO_TITLE: kind === 'convert' ? 'Elegí los videos a los que querés sacarles el audio' : 'Elegí los videos o audios a transcribir',
+      });
       const missing = files.find(file => !isFullPath(file) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile());
       if (missing) throw new HttpError(400, `No encuentro el archivo ${missing}.`);
-      for (const file of files) createJob({ kind: 'convert', source: file, title: path.basename(file) });
+      for (const file of files) createJob({ kind, source: file, title: path.basename(file) });
       return { count: files.length };
     }
     case '/api/open-folder': {
