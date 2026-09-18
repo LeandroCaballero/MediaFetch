@@ -84,6 +84,8 @@
   }
   .url-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
   .field-error { margin: -8px 2px 0; color: var(--err); font-size: 13px; }
+  .convert { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: -6px 2px 0; }
+  .convert .btn.link { font-size: 13.5px; }
 
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
   .options { padding: 4px 16px; }
@@ -131,6 +133,9 @@
   }
   .thumb { width: 96px; aspect-ratio: 16 / 9; border-radius: 7px; background: var(--sunken); overflow: hidden; }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .job[data-kind="convert"] .thumb {
+    background: var(--sunken) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9a93' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2'/%3E%3C/svg%3E") center / 28px no-repeat;
+  }
   .info { min-width: 0; display: grid; gap: 2px; }
   .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 13px; color: var(--muted); }
@@ -188,6 +193,10 @@
     <button class="btn primary" type="submit">Descargar</button>
   </form>
   <p id="url-error" class="field-error" role="alert" hidden></p>
+  <p class="convert">
+    <button type="button" class="btn link" id="convert">Sacarle el audio a un video de la compu…</button>
+    <span class="note">MP3 liviano para voz (mono, 16 kHz); queda al lado del video.</span>
+  </p>
 
   <section class="card options" aria-label="Opciones">
     <div class="opt">
@@ -362,7 +371,8 @@ async function setOption(patch) {
 
 // ---- Descargas --------------------------------------------------------------
 
-function badge({ opts }) {
+function badge({ kind, opts }) {
+  if (kind === 'convert') return 'MP3 voz';
   if (opts.format === 'mp3') return `MP3 ${opts.audioQuality === '0' ? 'VBR' : opts.audioQuality.replace('K', 'k')}`;
   if (opts.format === 'mp4') return `MP4 ${opts.videoQuality === 'best' ? 'máx.' : opts.videoQuality + 'p'}`;
   return 'M4A';
@@ -389,6 +399,7 @@ function statusText(job) {
       return parts.join(' · ');
     }
     case 'error':
+      if (job.kind === 'convert') return 'No se pudo convertir';
       return job.files.length ? `Terminó con errores (${job.files.length} se bajaron bien)` : 'No se pudo descargar';
     case 'canceled':
       return 'Cancelado';
@@ -405,10 +416,11 @@ function renderJob(job) {
     $('#jobs').prepend(el);
   }
   el.dataset.status = job.status;
+  el.dataset.kind = job.kind;
 
   const title = el.querySelector('.title');
   title.textContent = job.title || job.url;
-  title.title = job.itemTitle ? `${job.title}\n${job.itemTitle}` : title.textContent;
+  title.title = job.source || (job.itemTitle ? `${job.title}\n${job.itemTitle}` : title.textContent);
   const img = el.querySelector('img');
   if (job.thumbnail && img.getAttribute('src') !== job.thumbnail) img.src = job.thumbnail;
   img.hidden = !job.thumbnail;
@@ -569,16 +581,19 @@ for (const key of FLAGS) $('#' + key).addEventListener('change', e => setOption(
 $('#outputDir').addEventListener('change', e => setOption({ outputDir: e.target.value.trim() }));
 $('#outputDir').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 
-$('#pick').addEventListener('click', async () => {
-  $('#pick').disabled = true;
+/** Para acciones que abren un diálogo de Windows: el botón queda deshabilitado hasta que se cierra. */
+async function withDialog(button, path) {
+  button.disabled = true;
   try {
-    await api('/api/pick-folder');
+    await api(path);
   } catch (err) {
     toast(err.message);
   } finally {
-    $('#pick').disabled = false;
+    button.disabled = false;
   }
-});
+}
+$('#pick').addEventListener('click', () => withDialog($('#pick'), '/api/pick-folder'));
+$('#convert').addEventListener('click', () => withDialog($('#convert'), '/api/convert'));
 $('#open').addEventListener('click', () => api('/api/open-folder').catch(err => toast(err.message)));
 $('#clear').addEventListener('click', () => api('/api/jobs/clear').catch(err => toast(err.message)));
 $('#update').addEventListener('click', () => api('/api/update').catch(err => toast(err.message)));

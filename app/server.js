@@ -181,8 +181,9 @@ let active = null;        // la descarga que está corriendo
 const publicJob = ({ _, ...job }) => job;
 const busy = () => Boolean(active) || ytdlp.updating || [...jobs.values()].some(j => j.status === 'queued');
 
-function createJob(url, opts) {
-  const job = { id: String(nextId++), url, opts, title: null, thumbnail: null };
+/** `fields`: { url, opts } para bajar de YouTube, o { kind: 'convert', source, title } para un archivo local. */
+function createJob(fields) {
+  const job = { id: String(nextId++), kind: 'download', title: null, thumbnail: null, ...fields };
   resetJob(job);
   jobs.set(job.id, job);
   flush(job);
@@ -197,7 +198,10 @@ function resetJob(job) {
     already: false, error: null, hint: null,
   });
   // Estado interno: no se manda a la interfaz.
-  job._ = { proc: null, finished: false, log: [], pendingLog: [], timer: null, temp: new Set(), tracks: [], video: {} };
+  job._ = {
+    proc: null, finished: false, log: [], pendingLog: [], timer: null, temp: new Set(), tracks: [], video: {},
+    outTime: 0, lastLine: null,
+  };
 }
 
 function processQueue() {
@@ -209,6 +213,7 @@ function processQueue() {
 function startJob(job) {
   active = job;
   job.status = 'running';
+  if (job.kind === 'convert') return startConversion(job);
   job.stage = 'Buscando el video';
   flush(job);
   try {
@@ -224,6 +229,64 @@ function startJob(job) {
   readLines(proc.stderr, line => handleLine(job, line));
   proc.on('error', e => finishJob(job, -1, `No se pudo ejecutar yt-dlp: ${e.message}`));
   proc.on('close', code => finishJob(job, code));
+}
+
+/** Saca el audio de un video de la compu: MP3 mono de 16 kHz y 32 kbps, liviano y claro para voz. */
+function startConversion(job) {
+  const output = freeName(replaceExt(job.source, '.mp3'));
+  job._.temp.add(output);
+  job.stage = 'Sacando el audio';
+  flush(job);
+  const args = [
+    '-hide_banner', '-nostdin', '-n', '-i', job.source,
+    '-vn', '-ac', '1', '-ar', '16000', '-b:a', '32k',
+    '-progress', 'pipe:1', '-nostats', output,
+  ];
+  log(`Conversión ${job.id}: ffmpeg ${args.join(' ')}`);
+  const proc = spawn(FFMPEG, args, { windowsHide: true });
+  job._.proc = proc;
+  readLines(proc.stdout, line => handleConversionLine(job, line));
+  readLines(proc.stderr, line => handleConversionLine(job, line));
+  proc.on('error', e => finishJob(job, -1, `No se pudo ejecutar ffmpeg: ${e.message}`));
+  proc.on('close', code => {
+    if (code === 0) {
+      job.files.push(output);
+    } else if (job.status !== 'canceled') {
+      const noAudio = job._.log.some(line => /does not contain any stream|matches no streams/.test(line));
+      job.error ??= noAudio ? 'Ese archivo no tiene audio.' : job._.lastLine;
+    }
+    finishJob(job, code);
+  });
+}
+
+function handleConversionLine(job, line) {
+  let m;
+  if ((m = /^out_time_us=(\d+)$/.exec(line))) {
+    job._.outTime = Number(m[1]) / 1e6;
+    if (job.duration) job.percent = Math.min(100, (100 * job._.outTime) / job.duration);
+  } else if ((m = /^speed=\s*([\d.]+)x$/.exec(line))) {
+    const speed = Number(m[1]);
+    if (job.duration && speed > 0) job.eta = Math.max(0, (job.duration - job._.outTime) / speed);
+  } else if (/^\w+=/.test(line)) {
+    return; // el resto del bloque de -progress no nos interesa
+  } else if (line.trim()) {
+    addLog(job, line);
+    job._.lastLine = line.trim();
+    if ((m = /^\s*Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(line))) {
+      job.duration ??= Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+    }
+  }
+  touch(job);
+}
+
+const replaceExt = (file, ext) => path.join(path.dirname(file), path.basename(file, path.extname(file)) + ext);
+
+/** `file` si está libre; si no, "nombre (2).ext", "nombre (3).ext", etc. Nunca pisa nada. */
+function freeName(file) {
+  const ext = path.extname(file);
+  let candidate = file;
+  for (let i = 2; fs.existsSync(candidate); i++) candidate = replaceExt(file, ` (${i})${ext}`);
+  return candidate;
 }
 
 function readLines(stream, onLine) {
@@ -342,14 +405,14 @@ async function finishJob(job, code, error) {
     job.status = 'done';
   } else {
     job.status = 'error';
-    job.error ??= `yt-dlp terminó con código ${code}.`;
-    job.hint = hintFor(job.error);
+    job.error ??= `${job.kind === 'convert' ? 'ffmpeg' : 'yt-dlp'} terminó con código ${code}.`;
+    job.hint = job.kind === 'download' ? hintFor(job.error) : null;
     await removeLeftovers(job);
   }
 
   job.size = job.files.reduce((sum, file) => sum + fileSize(file), 0);
   Object.assign(job, { stage: null, percent: null, speed: null, eta: null });
-  log(`Descarga ${job.id}: ${job.status}${job.error ? ` (${job.error})` : ''}`);
+  log(`Tarea ${job.id}: ${job.status}${job.error ? ` (${job.error})` : ''}`);
   flush(job);
   if (active === job) active = null;
   processQueue();
@@ -507,10 +570,13 @@ function openInExplorer(target, { select = false } = {}) {
   spawn('explorer.exe', [arg], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
 }
 
-const PICK_FOLDER_SCRIPT = `
+// Diálogos de Windows (WinForms desde PowerShell): el navegador no da las rutas de los archivos.
+const DIALOG_SETUP = `
 Add-Type -AssemblyName System.Windows.Forms
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }
+`;
+const PICK_FOLDER_SCRIPT = `
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
   Description = 'Elegí dónde guardar las descargas'
   ShowNewFolderButton = $true
@@ -518,22 +584,30 @@ $dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
 }
 if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath }
 `;
+const PICK_VIDEOS_SCRIPT = `
+$dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
+  Title = 'Elegí los videos a los que querés sacarles el audio'
+  Filter = 'Videos y audios|*.wmv;*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v;*.flv;*.mpg;*.mpeg;*.3gp;*.m4a;*.wav;*.wma;*.ogg;*.flac|Todos los archivos|*.*'
+  Multiselect = $true
+}
+if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.FileNames }
+`;
 
-let picking = false;
+let dialogOpen = false;
 
-async function pickFolder(current) {
-  if (picking) throw new HttpError(409, 'Ya hay una ventana abierta para elegir la carpeta.');
-  picking = true;
+/** Muestra un diálogo de Windows y devuelve las rutas elegidas (vacío si se canceló). */
+async function showDialog(script, env) {
+  if (dialogOpen) throw new HttpError(409, 'Ya hay una ventana de Windows abierta: cerrala primero.');
+  dialogOpen = true;
   try {
-    const encoded = Buffer.from(PICK_FOLDER_SCRIPT, 'utf16le').toString('base64');
+    const encoded = Buffer.from(DIALOG_SETUP + script, 'utf16le').toString('base64');
     const { out } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', encoded], {
-      env: { BAJALO_DIR: current },
+      env,
       timeoutMs: 60 * 60_000,
     });
-    const dir = out.trim().split(/\r?\n/).pop();
-    return dir && isFullPath(dir) ? dir : null;
+    return out.split(/\r?\n/).map(line => line.trim()).filter(isFullPath);
   } finally {
-    picking = false;
+    dialogOpen = false;
   }
 }
 
@@ -647,7 +721,7 @@ async function handleApi(pathname, body) {
     case '/api/jobs': {
       const url = parseUrl(body.url);
       if (!url) throw new HttpError(400, 'Eso no parece un link. Copiá la dirección completa del video.');
-      return { id: createJob(url.href, mergeOptions(settings, body.options)).id };
+      return { id: createJob({ url: url.href, opts: mergeOptions(settings, body.options) }).id };
     }
     case '/api/jobs/action': {
       const job = jobs.get(String(body.id));
@@ -673,13 +747,21 @@ async function handleApi(pathname, body) {
       return { settings };
     }
     case '/api/pick-folder': {
-      const dir = await pickFolder(settings.outputDir);
+      const [dir] = await showDialog(PICK_FOLDER_SCRIPT, { BAJALO_DIR: settings.outputDir });
       if (dir) {
         settings = mergeOptions(settings, { outputDir: dir });
         saveSettings();
         broadcast('settings', settings);
       }
       return { settings };
+    }
+    case '/api/convert': {
+      // Sin `files`, se eligen con el diálogo de Windows.
+      const files = Array.isArray(body.files) ? body.files.map(String) : await showDialog(PICK_VIDEOS_SCRIPT);
+      const missing = files.find(file => !isFullPath(file) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile());
+      if (missing) throw new HttpError(400, `No encuentro el archivo ${missing}.`);
+      for (const file of files) createJob({ kind: 'convert', source: file, title: path.basename(file) });
+      return { count: files.length };
     }
     case '/api/open-folder': {
       fs.mkdirSync(settings.outputDir, { recursive: true });

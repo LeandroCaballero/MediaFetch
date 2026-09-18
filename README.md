@@ -11,6 +11,7 @@ Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y v
 - Limpia los títulos: saca "(Official Video)", "[Lyrics]", "(Video Oficial)", etc.
 - Playlists enteras, en una carpeta y numeradas.
 - Álbumes subidos como un solo video: si tiene capítulos, además arma una pista por canción, con su título y número.
+- Saca el audio de videos de la compu (.wmv, .mp4, .mkv…) a un MP3 liviano para voz (mono, 16 kHz, 32 kbps), ideal para transcribir. Queda al lado del video.
 - Cola de descargas con progreso; se pueden cancelar y reintentar.
 - Mantiene yt-dlp actualizado solo (una vez por día), porque YouTube cambia seguido y las versiones viejas dejan de andar.
 
