@@ -32,6 +32,8 @@ Para actualizar, bajá el ZIP nuevo y reemplazá la carpeta. Lo que bajaste no s
 
 Doble clic en **MediaFetch.exe**. Se abre la ventana (con Edge, Chrome o Brave; si no hay ninguno, en el navegador por defecto). Pegá el link y dale a **Descargar**. Los archivos van a **Música\MediaFetch** o a la carpeta que elijas.
 
+Si tenés OneDrive, Google Drive, Dropbox o iCloud en la compu, abajo de la carpeta aparece **Guardar en:** con esas nubes, para elegirlas con un clic. Se guarda en una carpeta MediaFetch adentro de la nube y el programa de la nube lo sube solo. Si no elegís ninguna, no cambia nada.
+
 Cuando cerrás la ventana, MediaFetch se cierra del todo en unos segundos. Si hay descargas en curso, antes te pregunta: si cerrás igual, se cancelan.
 
 `bin\download.bat` es la versión de consola: pide el link y baja el MP3 a Música\MediaFetch, sin opciones.

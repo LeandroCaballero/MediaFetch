@@ -88,6 +88,10 @@
   .local .btn.link { font-size: 13.5px; }
   .key-hint { margin: 6px 0 0; }
   .key-hint a { color: var(--accent-text); }
+  .places { margin: 6px 0 0; }
+  .places .btn.link { font-size: 13px; }
+  .places .btn.link[aria-pressed="true"] { color: var(--text); font-weight: 650; text-decoration: none; cursor: default; }
+  .places .btn.link[aria-pressed="true"]::before { content: "✓ "; }
 
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
   .options { padding: 4px 16px; }
@@ -229,12 +233,15 @@
         <label><input type="checkbox" id="splitChapters"><span>Separar en pistas<span class="hint">Álbumes con capítulos: además, un archivo por canción</span></span></label>
       </div>
     </div>
-    <div class="opt">
+    <div class="opt top">
       <label class="label" for="outputDir">Carpeta</label>
-      <div class="folder">
-        <input id="outputDir" type="text" spellcheck="false">
-        <button type="button" class="btn" id="pick">Cambiar…</button>
-        <button type="button" class="btn" id="open">Abrir</button>
+      <div>
+        <div class="folder">
+          <input id="outputDir" type="text" spellcheck="false">
+          <button type="button" class="btn" id="pick">Cambiar…</button>
+          <button type="button" class="btn" id="open">Abrir</button>
+        </div>
+        <p id="places" class="note places" hidden></p>
       </div>
     </div>
     <div class="opt top">
@@ -371,7 +378,24 @@ function renderSettings() {
   const dir = $('#outputDir');
   if (document.activeElement !== dir) dir.value = settings.outputDir;
   dir.title = settings.outputDir;
+  renderPlaces();
   $('#groqKey').placeholder = settings.groqKeySet ? 'Clave guardada ✓ (pegá otra para cambiarla)' : 'Pegá tu clave de Groq';
+}
+
+/** Si `dir` es `root` o está adentro, sin distinguir mayúsculas (como Windows). */
+const isInside = (dir, root) => `${dir}\\`.toLowerCase().startsWith(`${root.replace(/\\+$/, '')}\\`.toLowerCase());
+
+/** "Guardar en: Música · OneDrive": solo aparece si hay alguna nube, y marca dónde se guarda ahora. */
+function renderPlaces() {
+  const places = settings.places || [];
+  const current = places.find(place => isInside(settings.outputDir, place.root || place.dir));
+  $('#places').hidden = !places.length;
+  $('#places').replaceChildren('Guardar en: ', ...places.flatMap((place, i) => {
+    const button = Object.assign(document.createElement('button'), { type: 'button', className: 'btn link', textContent: place.name, title: place.dir });
+    button.dataset.dir = place.dir;
+    button.setAttribute('aria-pressed', String(place === current));
+    return i ? [' · ', button] : [button];
+  }));
 }
 
 async function setOption(patch) {
@@ -607,6 +631,10 @@ $('#quality').addEventListener('change', e => setOption({ [qualityKey()]: e.targ
 for (const key of FLAGS) $('#' + key).addEventListener('change', e => setOption({ [key]: e.target.checked }));
 $('#outputDir').addEventListener('change', e => setOption({ outputDir: e.target.value.trim() }));
 $('#outputDir').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+$('#places').addEventListener('click', e => {
+  const button = e.target.closest('button[data-dir]');
+  if (button && button.getAttribute('aria-pressed') !== 'true') setOption({ outputDir: button.dataset.dir });
+});
 
 /** Para acciones que abren un diálogo de Windows: el botón queda deshabilitado hasta que se cierra. */
 async function withDialog(button, path) {

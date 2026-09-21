@@ -31,6 +31,8 @@ const FFPROBE = path.join(BIN_DIR, 'ffprobe.exe');
 const INDEX_FILE = path.join(APP_DIR, 'index.html');
 const SETTINGS_FILE = path.join(APP_DIR, 'settings.json');
 const LOG_FILE = path.join(APP_DIR, 'server.log');
+// Para guardar en una nube se baja primero acá (ver buildArgs).
+const CLOUD_TEMP_DIR = path.join(os.tmpdir(), 'MediaFetch');
 
 // Si este archivo cambia, el lanzador reemplaza al servidor viejo que haya quedado corriendo.
 const BUILD = String(fs.statSync(__filename).mtimeMs);
@@ -89,7 +91,7 @@ let lastUpdateCheck = 0;
 let groqKey = '';
 let settings = loadSettings();
 
-const publicSettings = () => ({ ...settings, groqKeySet: Boolean(groqKey) });
+const publicSettings = () => ({ ...settings, groqKeySet: Boolean(groqKey), places: places() });
 
 function loadSettings() {
   try {
@@ -119,6 +121,54 @@ function removeFile(file) {
   } catch (e) {
     log(`No se pudo borrar ${file}: ${e.message}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Nubes: las carpetas que sincronizan OneDrive, Google Drive, Dropbox o iCloud en esta PC. La
+// ventana las ofrece para elegirlas con un clic; la carpeta de descargas nunca cambia sola.
+
+let clouds = []; // [{ name, dir }]: se buscan al arrancar el servidor
+
+const readText = file => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+
+/** Si `dir` es `root` o está adentro, sin distinguir mayúsculas (como Windows). */
+const isInside = (dir, root) => `${dir}\\`.toLowerCase().startsWith(`${root.replace(/\\+$/, '')}\\`.toLowerCase());
+
+/**
+ * Las carpetas de nube que hay en esta PC, como [{ name, dir }]. Solo mira rutas conocidas y no
+ * recorre las letras de unidad: una unidad de red desconectada puede tardar un minuto en responder.
+ */
+function findClouds({ env = process.env, home = os.homedir(), exists = fs.existsSync, read = readText } = {}) {
+  const found = [];
+  const add = (dir, name) => {
+    if (typeof dir !== 'string' || !exists(dir) || found.some(cloud => isInside(dir, cloud.dir))) return;
+    found.push({ name: name ?? path.win32.basename(dir), dir });
+  };
+  // OneDrive anota sus carpetas en variables: la personal y las de trabajo o estudio, cuyas
+  // carpetas ya se llaman como se muestran ("OneDrive - Empresa").
+  for (const key of ['OneDriveConsumer', 'OneDriveCommercial', 'OneDrive']) add(env[key]);
+  // Google Drive para escritorio muestra "Mi unidad" en su unidad G: o, si duplica los archivos,
+  // en la carpeta del usuario. G: solo se mira si está instalado.
+  if (exists(path.win32.join(env.ProgramFiles || 'C:\\Program Files', 'Google', 'Drive File Stream'))) {
+    for (const root of ['G:\\', home]) for (const name of ['Mi unidad', 'My Drive']) add(path.win32.join(root, name), 'Google Drive');
+  }
+  // Dropbox dice dónde están sus carpetas (la personal y la de equipo) en info.json.
+  for (const base of [env.LOCALAPPDATA, env.APPDATA]) {
+    const info = base ? parseJson(read(path.win32.join(base, 'Dropbox', 'info.json'))) : null;
+    for (const account of Object.values(info || {})) add(account?.path);
+  }
+  add(path.win32.join(home, 'iCloudDrive'), 'iCloud Drive');
+  return found;
+}
+
+/** Dónde se puede guardar con un clic: si hay nubes, Música y la misma subcarpeta en cada nube. */
+function places() {
+  if (!clouds.length) return [];
+  const folder = path.basename(DEFAULTS.outputDir);
+  return [
+    { name: 'Música', dir: DEFAULTS.outputDir },
+    ...clouds.map(cloud => ({ name: cloud.name, dir: path.join(cloud.dir, folder), root: cloud.dir })),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +212,9 @@ function buildArgs(job) {
     ...MACHINE_OUTPUT,
     '--windows-filenames',
     '-P', opts.outputDir,
+    // En una nube se baja a una carpeta local y al final se mueve lo terminado: así su programa no
+    // sube archivos a medio bajar.
+    ...(clouds.some(cloud => isInside(opts.outputDir, cloud.dir)) ? ['-P', `temp:${CLOUD_TEMP_DIR}`] : []),
     '-o', playlist ? '%(playlist_title,playlist_id)s/%(playlist_index)s - %(title)s.%(ext)s' : '%(title)s.%(ext)s',
     playlist ? '--yes-playlist' : '--no-playlist',
   ];
@@ -1002,6 +1055,8 @@ async function handleRequest(req, res) {
 let httpServer = null;
 
 function serve() {
+  clouds = findClouds();
+  if (clouds.length) log(`Nubes: ${clouds.map(cloud => cloud.name).join(', ')}`);
   httpServer = http.createServer(handleRequest);
   httpServer.on('error', e => {
     log(e.code === 'EADDRINUSE' ? `El puerto ${PORT} está ocupado por otro programa.` : e.stack);
@@ -1096,7 +1151,7 @@ async function launch() {
   else openWindow(`${ORIGIN}/`);
 }
 
-module.exports = { clock, hintFor, isPlaylistDownload, mergeOptions, parseUrl };
+module.exports = { clock, findClouds, hintFor, isInside, isPlaylistDownload, mergeOptions, parseUrl };
 
 if (require.main === module) {
   if (process.argv.includes('--serve')) serve();
