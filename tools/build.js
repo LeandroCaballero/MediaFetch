@@ -1,13 +1,13 @@
 'use strict';
 /*
- * Arma Bajalo portátil: Bajalo.exe, app/ y bin/ con Node, yt-dlp y FFmpeg adentro, así quien lo
+ * Arma MediaFetch portátil: MediaFetch.exe, app/ y bin/ con Node, yt-dlp y FFmpeg adentro, así quien lo
  * baja no tiene que instalar ni descargar nada más.
  *
- *   node tools/build.js        Baja a bin/ lo que falte y compila Bajalo.exe: después, doble clic en él.
- *   node tools/build.js --zip  Además arma dist/Bajalo-win64.zip, el que se publica en los Releases.
+ *   node tools/build.js        Baja a bin/ lo que falte y compila MediaFetch.exe: después, doble clic en él.
+ *   node tools/build.js --zip  Además arma dist/MediaFetch-win64.zip, el que se publica en los Releases.
  *
  * Las versiones, URLs y SHA-256 están en dependencies.json; lo que se baja queda en dist/cache/.
- * Bajalo.exe se compila con el csc.exe que trae Windows, así que corre en Windows o en WSL.
+ * MediaFetch.exe se compila con el csc.exe que trae Windows, así que corre en Windows o en WSL.
  * No tiene dependencias: alcanza con Node 22 o más nuevo.
  */
 
@@ -20,12 +20,12 @@ const { execFileSync } = require('node:child_process');
 const ROOT = path.resolve(__dirname, '..');
 const BIN_DIR = path.join(ROOT, 'bin');
 const CACHE_DIR = path.join(ROOT, 'dist', 'cache');
-const ZIP_FILE = path.join(ROOT, 'dist', 'Bajalo-win64.zip');
-const EXE = path.join(ROOT, 'Bajalo.exe');
+const ZIP_FILE = path.join(ROOT, 'dist', 'MediaFetch-win64.zip');
+const EXE = path.join(ROOT, 'MediaFetch.exe');
 const LAUNCHER_DIR = path.join(ROOT, 'launcher');
 const DEPENDENCIES = require('./dependencies.json');
 
-// Lo que va en el ZIP además de Bajalo.exe y las dependencias, tal como está en el repo.
+// Lo que va en el ZIP además de MediaFetch.exe y las dependencias, tal como está en el repo.
 const APP_FILES = ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'app/index.html', 'app/server.js', 'bin/download.bat'];
 
 // El compilador de C# de .NET Framework 4, que viene con Windows 10 y 11. Desde WSL, el de Windows.
@@ -145,16 +145,16 @@ function uint32(value) {
   return buffer;
 }
 
-/** Compila Bajalo.exe: un programa de ventana, sin consola, con el ícono de la app. */
+/** Compila MediaFetch.exe: un programa de ventana, sin consola, con el ícono de la app. */
 function compileLauncher() {
-  if (!fs.existsSync(CSC)) throw new Error(`No encuentro ${CSC}: Bajalo.exe se compila en Windows o en WSL.`);
+  if (!fs.existsSync(CSC)) throw new Error(`No encuentro ${CSC}: MediaFetch.exe se compila en Windows o en WSL.`);
   // csc.exe es un programa de Windows: desde WSL hay que pasarle las rutas como las ve Windows.
   const winPath = file => (process.platform === 'win32' ? file : execFileSync('wslpath', ['-w', file], { encoding: 'utf8' }).trim());
   execFileSync(CSC, [
     '/nologo', '/target:winexe', '/optimize+', '/codepage:65001', '/reference:System.Windows.Forms.dll',
-    `/win32icon:${winPath(path.join(LAUNCHER_DIR, 'bajalo.ico'))}`,
+    `/win32icon:${winPath(path.join(LAUNCHER_DIR, 'mediafetch.ico'))}`,
     `/out:${winPath(EXE)}`,
-    winPath(path.join(LAUNCHER_DIR, 'Bajalo.cs')),
+    winPath(path.join(LAUNCHER_DIR, 'MediaFetch.cs')),
   ], { stdio: 'inherit' });
 }
 
@@ -178,14 +178,14 @@ async function main() {
   console.log(`Listo: ${EXE}`);
   if (!zip) return;
 
-  const files = { 'Bajalo.exe': fs.readFileSync(EXE) };
+  const files = { 'MediaFetch.exe': fs.readFileSync(EXE) };
   for (const file of APP_FILES) {
     const data = fs.readFileSync(path.join(ROOT, file));
     // cmd.exe necesita saltos de línea de Windows, aunque el repo esté en Linux o WSL.
     files[file] = file.endsWith('.bat') ? Buffer.from(data.toString('utf8').replace(/\r?\n/g, '\r\n')) : data;
   }
   Object.assign(files, packaged);
-  writeZip(ZIP_FILE, Object.fromEntries(Object.entries(files).map(([name, data]) => [`Bajalo/${name}`, data])));
+  writeZip(ZIP_FILE, Object.fromEntries(Object.entries(files).map(([name, data]) => [`MediaFetch/${name}`, data])));
   const hash = sha256(fs.readFileSync(ZIP_FILE));
   fs.writeFileSync(`${ZIP_FILE}.sha256`, `${hash}  ${path.basename(ZIP_FILE)}\n`);
   console.log(`Listo: ${ZIP_FILE}\nSHA-256: ${hash}`);

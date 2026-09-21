@@ -4,6 +4,7 @@ bin/*
 !bin/download.bat
 
 # Lo que arma tools/build.js: el lanzador compilado, el ZIP y las descargas que guarda
+/MediaFetch.exe
 /Bajalo.exe
 /dist/
 

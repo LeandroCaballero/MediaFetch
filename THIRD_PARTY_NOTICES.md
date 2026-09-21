@@ -1,6 +1,6 @@
 # Componentes de terceros
 
-El ZIP de Bajalo (`Bajalo-win64.zip`, en los Releases) trae adentro estos programas, sin modificar, para que funcione sin instalar ni bajar nada. No están en el repositorio: [`tools/build.js`](tools/build.js) los baja de sus sitios oficiales y verifica su SHA-256 contra [`tools/dependencies.json`](tools/dependencies.json), donde están las versiones exactas.
+El ZIP de MediaFetch (`MediaFetch-win64.zip`, en los Releases) trae adentro estos programas, sin modificar, para que funcione sin instalar ni bajar nada. No están en el repositorio: [`tools/build.js`](tools/build.js) los baja de sus sitios oficiales y verifica su SHA-256 contra [`tools/dependencies.json`](tools/dependencies.json), donde están las versiones exactas.
 
 | Componente | Para qué | Licencia | Código fuente |
 | --- | --- | --- | --- |

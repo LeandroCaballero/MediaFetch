@@ -1,6 +1,6 @@
 name: Release
 
-# Arma Bajalo-win64.zip (Bajalo.exe con Node, yt-dlp y FFmpeg adentro) en un Windows de GitHub.
+# Arma MediaFetch-win64.zip (MediaFetch.exe con Node, yt-dlp y FFmpeg adentro) en un Windows de GitHub.
 # Al subir un tag vX.Y.Z lo publica como Release; a mano (Run workflow) queda como artefacto para probarlo.
 on:
   push:
@@ -26,23 +26,23 @@ jobs:
       - if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/Bajalo-win64.zip
+          subject-path: dist/MediaFetch-win64.zip
       - if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v7
         with:
-          name: Bajalo-win64
-          path: dist/Bajalo-win64.zip
+          name: MediaFetch-win64
+          path: dist/MediaFetch-win64.zip
       - if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          $hash = (Get-FileHash dist/Bajalo-win64.zip -Algorithm SHA256).Hash.ToLower()
+          $hash = (Get-FileHash dist/MediaFetch-win64.zip -Algorithm SHA256).Hash.ToLower()
           @(
-            'Bajá **Bajalo-win64.zip**, descomprimilo y abrí **Bajalo.exe**. No hace falta instalar nada.'
+            'Bajá **MediaFetch-win64.zip**, descomprimilo y abrí **MediaFetch.exe**. No hace falta instalar nada.'
             ''
             'Si Windows avisa que "protegió tu PC", tocá **Más información** y después **Ejecutar de todas formas**. Para que no aparezca, antes de descomprimir: clic derecho en el ZIP → **Propiedades** → **Desbloquear**.'
             ''
             "SHA-256 del ZIP: ``$hash``"
           ) | Set-Content -Encoding utf8 dist/notas.md
-          gh release create $env:TAG dist/Bajalo-win64.zip dist/Bajalo-win64.zip.sha256 --title "Bajalo $env:TAG" --notes-file dist/notas.md
+          gh release create $env:TAG dist/MediaFetch-win64.zip dist/MediaFetch-win64.zip.sha256 --title "MediaFetch $env:TAG" --notes-file dist/notas.md

@@ -15,8 +15,8 @@ echo.
 echo Descargando y convirtiendo a MP3...
 echo.
 
-rem Sin un motor de JavaScript YouTube devuelve 403: se usa el Node que viene con Bajalo.
-rem Se guarda en Musica\Bajalo, como desde la ventana, y no adentro de la carpeta de Bajalo.
+rem Sin un motor de JavaScript YouTube devuelve 403: se usa el Node que viene con MediaFetch.
+rem Se guarda en Musica\MediaFetch, como desde la ventana, y no adentro de la carpeta de MediaFetch.
 "%~dp0yt-dlp.exe" ^
     --ignore-config ^
     --js-runtimes "node:%~dp0node.exe" ^
@@ -30,18 +30,18 @@ rem Se guarda en Musica\Bajalo, como desde la ventana, y no adentro de la carpet
     --convert-thumbnails jpg ^
     --windows-filenames ^
     --replace-in-metadata "title" "(?i)\s*[\(\[](official\s*(music\s*)?video|official\s*audio|lyrics?|lyric\s*video|audio|visualizer|video\s*oficial|letra|sub\s*espanol|subtitulado|hd|4k)[^\)\]]*[\)\]]\s*" "" ^
-    -P "%USERPROFILE%\Music\Bajalo" ^
+    -P "%USERPROFILE%\Music\MediaFetch" ^
     -o "%%(title)s.%%(ext)s" ^
     "%URL%"
 
 echo.
 if errorlevel 1 (
     echo Hubo un error durante la descarga.
-    echo Si faltan archivos, volve a descomprimir el ZIP de Bajalo completo.
+    echo Si faltan archivos, volve a descomprimir el ZIP de MediaFetch completo.
 ) else (
     echo ==========================================
     echo Descarga completada correctamente.
-    echo Los MP3 estan en Musica\Bajalo.
+    echo Los MP3 estan en Musica\MediaFetch.
     echo ==========================================
 )
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bajalo</title>
+<title>MediaFetch</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d93a2f'/%3E%3Cpath d='M16 7.5v12m-5.5-5.5 5.5 5.5 5.5-5.5M9.5 24.5h13' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -188,7 +188,7 @@
 <main class="wrap">
   <header class="top">
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#d93a2f"/><path d="M16 7.5v12m-5.5-5.5 5.5 5.5 5.5-5.5M9.5 24.5h13" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <h1>Bajalo</h1>
+    <h1>MediaFetch</h1>
     <span class="sub">YouTube a MP3, M4A o MP4</span>
   </header>
 
@@ -267,7 +267,7 @@
 </main>
 
 <div id="toast" class="toast" role="status" hidden></div>
-<div id="offline" class="offline" role="alert" hidden>Se cortó la conexión con Bajalo. Cerrá esta ventana y volvé a abrir Bajalo.</div>
+<div id="offline" class="offline" role="alert" hidden>Se cortó la conexión con MediaFetch. Cerrá esta ventana y volvé a abrir MediaFetch.</div>
 
 <template id="job-template">
   <li class="job">
@@ -490,7 +490,7 @@ function renderListState() {
   $('#empty').hidden = all.length > 0;
   $('#clear').hidden = !all.some(job => FINISHED.includes(job.status));
   const running = all.find(job => job.status === 'running');
-  document.title = running?.percent != null ? `${Math.floor(running.percent)}% · Bajalo` : 'Bajalo';
+  document.title = running?.percent != null ? `${Math.floor(running.percent)}% · MediaFetch` : 'MediaFetch';
 }
 
 // ---- yt-dlp -------------------------------------------------------------------
@@ -654,7 +654,7 @@ $('#jobs').addEventListener('click', e => {
   api('/api/jobs/action', { id, action: button.dataset.act }).catch(err => toast(err.message));
 });
 
-// Cerrar la ventana cierra Bajalo y cancela lo que se está bajando: que el navegador pregunte antes.
+// Cerrar la ventana cierra MediaFetch y cancela lo que se está bajando: que el navegador pregunte antes.
 window.addEventListener('beforeunload', e => {
   if ([...jobs.values()].some(job => job.status === 'queued' || job.status === 'running')) {
     e.preventDefault();

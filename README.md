@@ -1,8 +1,8 @@
-# Bajalo
+# MediaFetch
 
 Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y videos, hecha sobre [yt-dlp](https://github.com/yt-dlp/yt-dlp) y [FFmpeg](https://ffmpeg.org). Para Windows 10 y 11.
 
-![Bajalo](docs/captura.png)
+![MediaFetch](docs/captura.png)
 
 ## Qué hace
 
@@ -18,27 +18,27 @@ Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y v
 
 ## Instalación
 
-1. Bajá **Bajalo-win64.zip** de la [última versión](https://github.com/LeandroCaballero/bajalo/releases/latest).
+1. Bajá **MediaFetch-win64.zip** de la [última versión](https://github.com/LeandroCaballero/bajalo/releases/latest).
 2. Descomprimilo: clic derecho → **Extraer todo**.
-3. Abrí la carpeta **Bajalo** y hacé doble clic en **Bajalo.exe**.
+3. Abrí la carpeta **MediaFetch** y hacé doble clic en **MediaFetch.exe**.
 
 Trae todo adentro (Node.js, yt-dlp y FFmpeg): no hay que instalar nada ni pide permisos de administrador. Para desinstalarlo, borrá la carpeta.
 
-La primera vez, Windows puede avisar que "protegió tu PC" porque `Bajalo.exe` no está firmado: tocá **Más información** y después **Ejecutar de todas formas**. Para que no aparezca, antes de descomprimir: clic derecho en el ZIP → **Propiedades** → **Desbloquear**.
+La primera vez, Windows puede avisar que "protegió tu PC" porque `MediaFetch.exe` no está firmado: tocá **Más información** y después **Ejecutar de todas formas**. Para que no aparezca, antes de descomprimir: clic derecho en el ZIP → **Propiedades** → **Desbloquear**.
 
-Para actualizar, bajá el ZIP nuevo y reemplazá la carpeta. Lo que bajaste no se pierde, porque queda en **Música\Bajalo**. Si querés conservar las opciones y la clave de Groq, copiá `app\settings.json` de la carpeta vieja a la nueva.
+Para actualizar, bajá el ZIP nuevo y reemplazá la carpeta. Lo que bajaste no se pierde, porque queda en **Música\MediaFetch**. Si querés conservar las opciones y la clave de Groq, copiá `app\settings.json` de la carpeta vieja a la nueva.
 
 ## Uso
 
-Doble clic en **Bajalo.exe**. Se abre la ventana (con Edge, Chrome o Brave; si no hay ninguno, en el navegador por defecto). Pegá el link y dale a **Descargar**. Los archivos van a **Música\Bajalo** o a la carpeta que elijas.
+Doble clic en **MediaFetch.exe**. Se abre la ventana (con Edge, Chrome o Brave; si no hay ninguno, en el navegador por defecto). Pegá el link y dale a **Descargar**. Los archivos van a **Música\MediaFetch** o a la carpeta que elijas.
 
-Cuando cerrás la ventana, Bajalo se cierra del todo en unos segundos. Si hay descargas en curso, antes te pregunta: si cerrás igual, se cancelan.
+Cuando cerrás la ventana, MediaFetch se cierra del todo en unos segundos. Si hay descargas en curso, antes te pregunta: si cerrás igual, se cancelan.
 
-`bin\download.bat` es la versión de consola: pide el link y baja el MP3 a Música\Bajalo, sin opciones.
+`bin\download.bat` es la versión de consola: pide el link y baja el MP3 a Música\MediaFetch, sin opciones.
 
 ## Transcribir
 
-Bajalo transcribe con Whisper large-v3 a través de [Groq](https://console.groq.com), que es gratis con límites (unas 2 horas de audio por hora).
+MediaFetch transcribe con Whisper large-v3 a través de [Groq](https://console.groq.com), que es gratis con límites (unas 2 horas de audio por hora).
 
 1. Creá una cuenta y una clave en [console.groq.com/keys](https://console.groq.com/keys).
 2. Pegala en **Opciones → Transcribir** y tocá **Guardar**.
@@ -57,7 +57,7 @@ La clave se guarda solo en `app/settings.json`, que no se sube al repo. Tené en
 
 Sin paquetes npm ni frameworks: alcanza con Node, que viene adentro del ZIP.
 
-- `Bajalo.exe` ([`launcher/Bajalo.cs`](launcher/Bajalo.cs)): lanzador sin consola. Corre `bin\node.exe app\server.js` y, si algo falla, muestra el error en un cartel.
+- `MediaFetch.exe` ([`launcher/MediaFetch.cs`](launcher/MediaFetch.cs)): lanzador sin consola. Corre `bin\node.exe app\server.js` y, si algo falla, muestra el error en un cartel.
 - `app/server.js`: servidor local que solo escucha en `127.0.0.1`. Corre yt-dlp, lee su progreso y se lo pasa a la ventana con Server-Sent Events. Se cierra cuando se cierra la ventana.
 - `app/index.html`: la interfaz, en HTML, CSS y JavaScript sin frameworks.
 - `tools/build.js`: arma la carpeta portátil y el ZIP, con las versiones y los SHA-256 de Node, yt-dlp y FFmpeg que fija `tools/dependencies.json`.
@@ -72,7 +72,7 @@ node tools/build.js
 node --test
 ```
 
-El primero baja Node, yt-dlp y FFmpeg a `bin/` y compila `Bajalo.exe` con el compilador de C# que trae Windows; después, doble clic en `Bajalo.exe`. Para depurar, `node app/server.js --serve` corre el servidor en primer plano en http://127.0.0.1:17865.
+El primero baja Node, yt-dlp y FFmpeg a `bin/` y compila `MediaFetch.exe` con el compilador de C# que trae Windows; después, doble clic en `MediaFetch.exe`. Para depurar, `node app/server.js --serve` corre el servidor en primer plano en http://127.0.0.1:17865.
 
 ## Publicar una versión
 
@@ -81,12 +81,12 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-La Action [Release](.github/workflows/release.yml) arma `Bajalo-win64.zip` en un Windows de GitHub y lo publica como Release, con su SHA-256. Para probar el ZIP sin publicarlo: **Actions → Release → Run workflow**, y queda como artefacto. El repo tiene que ser público para que cualquiera pueda bajar los Releases.
+La Action [Release](.github/workflows/release.yml) arma `MediaFetch-win64.zip` en un Windows de GitHub y lo publica como Release, con su SHA-256. Para probar el ZIP sin publicarlo: **Actions → Release → Run workflow**, y queda como artefacto. El repo tiene que ser público para que cualquiera pueda bajar los Releases.
 
 En un repo público, cada ZIP sale con una certificación de GitHub que dice de qué commit de este repo se armó. Se verifica con:
 
 ```text
-gh attestation verify Bajalo-win64.zip --repo LeandroCaballero/bajalo
+gh attestation verify MediaFetch-win64.zip --repo LeandroCaballero/mediafetch
 ```
 
 ## Aviso

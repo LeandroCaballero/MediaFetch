@@ -10,19 +10,19 @@ const path = require('node:path');
 const { readZip, writeZip } = require('../tools/build');
 
 test('writeZip arma un .zip que readZip vuelve a leer igual', t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bajalo-zip-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediafetch-zip-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'prueba.zip');
   const files = {
-    'Bajalo/texto.txt': Buffer.from('se comprime bien '.repeat(1000)),
-    'Bajalo/bin/azar.bin': crypto.randomBytes(4096), // no se achica: va sin comprimir
-    'Bajalo/canción ñandú.txt': Buffer.from('nombre con tildes'),
-    'Bajalo/vacío.txt': Buffer.alloc(0),
+    'MediaFetch/texto.txt': Buffer.from('se comprime bien '.repeat(1000)),
+    'MediaFetch/bin/azar.bin': crypto.randomBytes(4096), // no se achica: va sin comprimir
+    'MediaFetch/canción ñandú.txt': Buffer.from('nombre con tildes'),
+    'MediaFetch/vacío.txt': Buffer.alloc(0),
   };
   writeZip(file, files);
   const extract = readZip(fs.readFileSync(file));
   for (const [name, data] of Object.entries(files)) assert.deepEqual(extract(name), data);
-  assert.throws(() => extract('Bajalo/no-existe.txt'), /No está/);
+  assert.throws(() => extract('MediaFetch/no-existe.txt'), /No está/);
 });
 
 test('readZip rechaza lo que no es un .zip', () => {

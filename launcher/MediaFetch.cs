@@ -1,4 +1,4 @@
-// Bajalo.exe: abre Bajalo sin consola. Corre bin\node.exe app\server.js, que levanta el
+// MediaFetch.exe: abre MediaFetch sin consola. Corre bin\node.exe app\server.js, que levanta el
 // servidor en segundo plano si no está corriendo y abre la ventana. Si falla, muestra el error.
 // Lo compila tools/build.js con el csc.exe que trae Windows (.NET Framework 4), sin instalar nada.
 using System;
@@ -19,7 +19,7 @@ static class Launcher
         string server = Path.Combine(root, @"app\server.js");
         if (!File.Exists(node) || !File.Exists(server))
         {
-            return Fail("Faltan archivos en " + root + "\n\nVolvé a descomprimir el ZIP de Bajalo completo y abrí Bajalo.exe desde esa carpeta.");
+            return Fail("Faltan archivos en " + root + "\n\nVolvé a descomprimir el ZIP de MediaFetch completo y abrí MediaFetch.exe desde esa carpeta.");
         }
 
         var errors = new StringBuilder();
@@ -39,7 +39,7 @@ static class Launcher
         }
         catch (Exception e)
         {
-            return Fail("No se pudo abrir Bajalo: " + e.Message);
+            return Fail("No se pudo abrir MediaFetch: " + e.Message);
         }
         process.BeginErrorReadLine();
         // Con plazo: WaitForExit() a secas espera además a que se cierre stderr, y el servidor que
@@ -49,7 +49,7 @@ static class Launcher
         Thread.Sleep(200); // que termine de llegar lo último que escribió en stderr
         string message;
         lock (errors) message = errors.ToString().Trim();
-        return Fail(message.Length > 0 ? message : "Bajalo se cerró con el código " + process.ExitCode + ".");
+        return Fail(message.Length > 0 ? message : "MediaFetch se cerró con el código " + process.ExitCode + ".");
     }
 
     [DllImport("user32.dll")]
@@ -59,7 +59,7 @@ static class Launcher
     {
         SetProcessDPIAware(); // sin esto, el cartel se ve borroso en pantallas con escala
         Application.EnableVisualStyles();
-        MessageBox.Show(message, "Bajalo", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        MessageBox.Show(message, "MediaFetch", MessageBoxButtons.OK, MessageBoxIcon.Error);
         return 1;
     }
 }

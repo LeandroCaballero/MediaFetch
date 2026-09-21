@@ -1,8 +1,8 @@
 'use strict';
 /*
- * Bajalo: interfaz local para bajar música y videos con yt-dlp.
+ * MediaFetch: interfaz local para bajar música y videos con yt-dlp.
  *
- *   node server.js              Lanzador (lo usa Bajalo.exe): levanta el servidor en
+ *   node server.js              Lanzador (lo usa MediaFetch.exe): levanta el servidor en
  *                               segundo plano si no está corriendo y abre la ventana.
  *   node server.js --no-window  Igual, pero sin abrir la ventana.
  *   node server.js --serve      Corre el servidor en primer plano (para depurar).
@@ -20,7 +20,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { setTimeout: wait } = require('node:timers/promises');
 
 const HOST = '127.0.0.1';
-const PORT = Number(process.env.BAJALO_PORT) || 17865;
+const PORT = Number(process.env.MEDIAFETCH_PORT) || 17865;
 const ORIGIN = `http://${HOST}:${PORT}`;
 
 const APP_DIR = __dirname;
@@ -58,8 +58,8 @@ const DEFAULTS = {
   cleanTitle: true,        // sacar "(Official Video)", "[Lyrics]", etc. del título
   playlist: false,         // con links watch?v=…&list=…, bajar la playlist entera
   splitChapters: false,    // además del archivo completo, una pista por capítulo
-  // Fuera de la carpeta de Bajalo: así no se pierde nada al reemplazarla por una versión nueva.
-  outputDir: path.join(os.homedir(), 'Music', 'Bajalo'),
+  // Fuera de la carpeta de MediaFetch: así no se pierde nada al reemplazarla por una versión nueva.
+  outputDir: path.join(os.homedir(), 'Music', 'MediaFetch'),
   autoUpdate: true,        // actualizar yt-dlp (una vez por día) al abrir la app
 };
 const CHOICES = {
@@ -104,7 +104,7 @@ function loadSettings() {
 
 function saveSettings() {
   const saved = { ...settings, lastUpdateCheck, groqKey };
-  // La carpeta por defecto no se guarda: si Bajalo se copia a otra PC, sigue siendo la de ese usuario.
+  // La carpeta por defecto no se guarda: si MediaFetch se copia a otra PC, sigue siendo la de ese usuario.
   if (saved.outputDir === DEFAULTS.outputDir) delete saved.outputDir;
   try {
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(saved, null, 2));
@@ -328,7 +328,7 @@ function freeName(file) {
 // ---------------------------------------------------------------------------
 // Transcripción con Groq: Whisper large-v3 en la nube, gratis con límites (console.groq.com)
 
-const GROQ_API = process.env.BAJALO_GROQ_API || 'https://api.groq.com/openai/v1'; // se cambia para pruebas
+const GROQ_API = process.env.MEDIAFETCH_GROQ_API || 'https://api.groq.com/openai/v1'; // se cambia para pruebas
 const GROQ_MODEL = 'whisper-large-v3';   // el más preciso de los que ofrece Groq
 const LANGUAGE = 'es';                   // fijarlo evita que Whisper adivine mal el idioma
 const PART_SECONDS = 30 * 60;            // partes de 30 min (~7 MB): el límite gratis es 25 MB por archivo
@@ -349,7 +349,7 @@ const isSilence = segment => segment.no_speech_prob > 0.6 && segment.avg_logprob
 async function startTranscription(job) {
   let dir = null;
   try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bajalo-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediafetch-'));
     job._.abort = new AbortController();
     job.stage = 'Preparando el audio';
     flush(job);
@@ -738,13 +738,13 @@ const PICK_FOLDER_SCRIPT = `
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
   Description = 'Elegí dónde guardar las descargas'
   ShowNewFolderButton = $true
-  SelectedPath = $env:BAJALO_DIR
+  SelectedPath = $env:MEDIAFETCH_DIR
 }
 if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath }
 `;
 const PICK_FILES_SCRIPT = `
 $dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-  Title = $env:BAJALO_TITLE
+  Title = $env:MEDIAFETCH_TITLE
   Filter = 'Videos y audios|*.wmv;*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v;*.flv;*.mpg;*.mpeg;*.3gp;*.mp3;*.m4a;*.wav;*.wma;*.ogg;*.opus;*.flac|Todos los archivos|*.*'
   Multiselect = $true
 }
@@ -832,7 +832,7 @@ function openEvents(req, res) {
   });
 }
 
-/** Si dentro de `ms` no hay ninguna ventana abierta, cierra Bajalo. */
+/** Si dentro de `ms` no hay ninguna ventana abierta, cierra MediaFetch. */
 function scheduleShutdown(ms) {
   clearTimeout(shutdownTimer);
   shutdownTimer = setTimeout(() => { if (!clients.size) shutdown(); }, ms);
@@ -840,8 +840,8 @@ function scheduleShutdown(ms) {
 
 /** Cancela lo pendiente y sale. Al salir se matan los procesos que hayan quedado (ver serve). */
 async function shutdown() {
-  log('No quedan ventanas abiertas: cierro Bajalo.');
-  // Soltar el puerto ya: si se vuelve a abrir Bajalo.exe, que arranque un servidor nuevo y no use este.
+  log('No quedan ventanas abiertas: cierro MediaFetch.');
+  // Soltar el puerto ya: si se vuelve a abrir MediaFetch.exe, que arranque un servidor nuevo y no use este.
   httpServer.close();
   for (const job of jobs.values()) cancelJob(job);
   // Que la descarga cancelada borre sus archivos a medio hacer y que yt-dlp.exe no quede a medio
@@ -926,7 +926,7 @@ async function handleApi(pathname, body) {
       return {};
     }
     case '/api/pick-folder': {
-      const [dir] = await showDialog(PICK_FOLDER_SCRIPT, { BAJALO_DIR: settings.outputDir });
+      const [dir] = await showDialog(PICK_FOLDER_SCRIPT, { MEDIAFETCH_DIR: settings.outputDir });
       if (dir) {
         settings = mergeOptions(settings, { outputDir: dir });
         saveSettings();
@@ -949,7 +949,7 @@ async function handleApi(pathname, body) {
       if (kind === 'transcribe' && !groqKey) throw new HttpError(400, 'Primero pegá tu clave de Groq en Opciones → Transcribir.');
       // Sin `files`, se eligen con el diálogo de Windows.
       const files = Array.isArray(body.files) ? body.files.map(String) : await showDialog(PICK_FILES_SCRIPT, {
-        BAJALO_TITLE: kind === 'convert' ? 'Elegí los videos a los que querés sacarles el audio' : 'Elegí los videos o audios a transcribir',
+        MEDIAFETCH_TITLE: kind === 'convert' ? 'Elegí los videos a los que querés sacarles el audio' : 'Elegí los videos o audios a transcribir',
       });
       const missing = files.find(file => !isFullPath(file) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile());
       if (missing) throw new HttpError(400, `No encuentro el archivo ${missing}.`);
@@ -984,7 +984,7 @@ async function handleRequest(req, res) {
     const { pathname } = new URL(req.url, ORIGIN);
     if (req.method === 'GET') {
       if (pathname === '/') return serveIndex(res);
-      if (pathname === '/api/ping') return reply(res, 200, { app: 'bajalo', build: BUILD });
+      if (pathname === '/api/ping') return reply(res, 200, { app: 'mediafetch', build: BUILD });
       if (pathname === '/api/events') return openEvents(req, res);
       throw new HttpError(404, 'No encontrado.');
     }
@@ -1043,7 +1043,7 @@ function request(method, pathname, body) {
 
 async function ping() {
   const info = await request('GET', '/api/ping');
-  return info?.app === 'bajalo' ? info : null;
+  return info?.app === 'mediafetch' ? info : null;
 }
 
 function fail(message) {
@@ -1082,7 +1082,7 @@ function openWindow(url) {
 
 async function launch() {
   const missing = [YTDLP, FFMPEG, FFPROBE].filter(file => !fs.existsSync(file)).map(path.basename);
-  if (missing.length) fail(`Faltan ${missing.join(', ')} en ${BIN_DIR}.\n\nVolvé a descomprimir el ZIP de Bajalo completo.`);
+  if (missing.length) fail(`Faltan ${missing.join(', ')} en ${BIN_DIR}.\n\nVolvé a descomprimir el ZIP de MediaFetch completo.`);
   let running = await ping();
   if (running && running.build !== BUILD && (await request('POST', '/api/quit', {}))) {
     // Quedó corriendo una versión anterior del servidor y está libre: la reemplazamos.
