@@ -2,13 +2,13 @@
 /*
  * Bajalo: interfaz local para bajar música y videos con yt-dlp.
  *
- *   node server.js              Lanzador (lo usa Bajalo.bat): levanta el servidor en
+ *   node server.js              Lanzador (lo usa Bajalo.exe): levanta el servidor en
  *                               segundo plano si no está corriendo y abre la ventana.
  *   node server.js --no-window  Igual, pero sin abrir la ventana.
  *   node server.js --serve      Corre el servidor en primer plano (para depurar).
  *
  * Escucha solo en 127.0.0.1, guarda las opciones en settings.json y su log en server.log.
- * Se cierra solo cuando no queda ninguna ventana abierta ni descargas pendientes.
+ * Se cierra cuando se cierra la última ventana: cancela lo pendiente y no deja procesos abiertos.
  * No tiene dependencias: alcanza con Node.
  */
 
@@ -27,6 +27,7 @@ const APP_DIR = __dirname;
 const BIN_DIR = path.resolve(APP_DIR, '..', 'bin');
 const YTDLP = path.join(BIN_DIR, 'yt-dlp.exe');
 const FFMPEG = path.join(BIN_DIR, 'ffmpeg.exe');
+const FFPROBE = path.join(BIN_DIR, 'ffprobe.exe');
 const INDEX_FILE = path.join(APP_DIR, 'index.html');
 const SETTINGS_FILE = path.join(APP_DIR, 'settings.json');
 const LOG_FILE = path.join(APP_DIR, 'server.log');
@@ -57,7 +58,8 @@ const DEFAULTS = {
   cleanTitle: true,        // sacar "(Official Video)", "[Lyrics]", etc. del título
   playlist: false,         // con links watch?v=…&list=…, bajar la playlist entera
   splitChapters: false,    // además del archivo completo, una pista por capítulo
-  outputDir: path.join(BIN_DIR, 'music'),
+  // Fuera de la carpeta de Bajalo: así no se pierde nada al reemplazarla por una versión nueva.
+  outputDir: path.join(os.homedir(), 'Music', 'Bajalo'),
   autoUpdate: true,        // actualizar yt-dlp (una vez por día) al abrir la app
 };
 const CHOICES = {
@@ -101,8 +103,11 @@ function loadSettings() {
 }
 
 function saveSettings() {
+  const saved = { ...settings, lastUpdateCheck, groqKey };
+  // La carpeta por defecto no se guarda: si Bajalo se copia a otra PC, sigue siendo la de ese usuario.
+  if (saved.outputDir === DEFAULTS.outputDir) delete saved.outputDir;
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...settings, lastUpdateCheck, groqKey }, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(saved, null, 2));
   } catch (e) {
     log(`No se pudieron guardar las opciones: ${e.message}`);
   }
@@ -124,6 +129,9 @@ const CLEAN_TITLE_RE = String.raw`(?i)\s*[(\[](?:official|oficial|video|videocli
 
 // Líneas "@@..." que yt-dlp imprime para que el servidor siga el progreso (ver handleTag).
 const MACHINE_OUTPUT = [
+  // No heredar yt-dlp.conf del usuario ni de la carpeta del ejecutable: la interfaz necesita
+  // controlar estos argumentos para interpretar correctamente la salida.
+  '--ignore-config',
   // yt-dlp.exe ignora PYTHONIOENCODING y escribe en la codificación de la consola (cp1252),
   // lo que rompe las rutas con tildes que leemos del log.
   '--encoding', 'utf-8',
@@ -216,14 +224,19 @@ function resetJob(job) {
 function processQueue() {
   if (active || ytdlp.updating) return;
   const next = [...jobs.values()].find(j => j.status === 'queued');
-  if (next) startJob(next);
+  if (next) {
+    void startJob(next).catch(async e => {
+      log(`No se pudo iniciar la tarea ${next.id}: ${e.stack || e}`);
+      await finishJob(next, -1, e.message || String(e));
+    });
+  }
 }
 
-function startJob(job) {
+async function startJob(job) {
   active = job;
   job.status = 'running';
-  if (job.kind === 'convert') return startConversion(job);
-  if (job.kind === 'transcribe') return startTranscription(job);
+  if (job.kind === 'convert') return await startConversion(job);
+  if (job.kind === 'transcribe') return await startTranscription(job);
   job.stage = 'Buscando el video';
   flush(job);
   try {
@@ -233,7 +246,7 @@ function startJob(job) {
   }
   const args = buildArgs(job);
   log(`Descarga ${job.id}: yt-dlp ${args.join(' ')}`);
-  const proc = spawn(YTDLP, args, { cwd: BIN_DIR, windowsHide: true });
+  const proc = spawnChild(YTDLP, args, { cwd: BIN_DIR });
   job._.proc = proc;
   readLines(proc.stdout, line => handleLine(job, line));
   readLines(proc.stderr, line => handleLine(job, line));
@@ -252,7 +265,7 @@ async function startConversion(job) {
   flush(job);
   const code = await runFfmpeg(job, ['-n', '-i', job.source, ...VOICE_MP3, output]);
   if (code === 0) job.files.push(output);
-  else if (job.status !== 'canceled') job.error ??= ffmpegError(job, code);
+  else if (job.status !== 'canceling' && job.status !== 'canceled') job.error ??= ffmpegError(job, code);
   finishJob(job, code);
 }
 
@@ -261,7 +274,7 @@ function runFfmpeg(job, args) {
   const fullArgs = ['-hide_banner', '-nostdin', '-progress', 'pipe:1', '-nostats', ...args];
   log(`Tarea ${job.id}: ffmpeg ${fullArgs.join(' ')}`);
   return new Promise(resolve => {
-    const proc = spawn(FFMPEG, fullArgs, { windowsHide: true });
+    const proc = spawnChild(FFMPEG, fullArgs);
     job._.proc = proc;
     readLines(proc.stdout, line => handleConversionLine(job, line));
     readLines(proc.stderr, line => handleConversionLine(job, line));
@@ -320,7 +333,13 @@ const GROQ_MODEL = 'whisper-large-v3';   // el más preciso de los que ofrece Gr
 const LANGUAGE = 'es';                   // fijarlo evita que Whisper adivine mal el idioma
 const PART_SECONDS = 30 * 60;            // partes de 30 min (~7 MB): el límite gratis es 25 MB por archivo
 
-const clock = seconds => new Date(Math.round(seconds) * 1000).toISOString().slice(11, 19);
+function clock(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  const secs = total % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 // Whisper a veces inventa texto en los silencios ("Subtítulos realizados por la comunidad de
 // Amara.org"): los descartamos con el mismo criterio que usa Whisper para detectar silencio.
@@ -328,16 +347,17 @@ const isSilence = segment => segment.no_speech_prob > 0.6 && segment.avg_logprob
 
 /** Pasa el audio a MP3 de voz en partes, las transcribe con Groq y deja un .txt al lado del archivo. */
 async function startTranscription(job) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bajalo-'));
-  job._.abort = new AbortController();
+  let dir = null;
   try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bajalo-'));
+    job._.abort = new AbortController();
     job.stage = 'Preparando el audio';
     flush(job);
     const code = await runFfmpeg(job, [
       '-i', job.source, ...VOICE_MP3,
       '-f', 'segment', '-segment_time', String(PART_SECONDS), '-reset_timestamps', '1', path.join(dir, 'parte%03d.mp3'),
     ]);
-    if (job.status === 'canceled') return finishJob(job, 1);
+    if (job.status === 'canceling' || job.status === 'canceled') return finishJob(job, 1);
     if (code !== 0) return finishJob(job, code, ffmpegError(job, code));
 
     const parts = fs.readdirSync(dir).sort().map(name => path.join(dir, name));
@@ -362,10 +382,10 @@ async function startTranscription(job) {
     job.files.push(output);
     finishJob(job, 0);
   } catch (e) {
-    finishJob(job, 1, job.status === 'canceled' ? null : e.message);
+    finishJob(job, 1, job.status === 'canceling' || job.status === 'canceled' ? null : e.message);
   } finally {
     job._.abort = null;
-    fs.rm(dir, { recursive: true, force: true }, () => {});
+    if (dir) fs.rm(dir, { recursive: true, force: true }, e => { if (e) log(`No se pudo borrar ${dir}: ${e.message}`); });
   }
 }
 
@@ -517,8 +537,9 @@ async function finishJob(job, code, error) {
   job._.proc = null;
   if (error) job.error ??= error;
 
-  if (job.status === 'canceled') {
+  if (job.status === 'canceling' || job.status === 'canceled') {
     await removeLeftovers(job);
+    job.status = 'canceled';
   } else if (code === 0) {
     if (job._.tracks.length) {
       Object.assign(job, { stage: 'Etiquetando las pistas', percent: null, speed: null, eta: null });
@@ -599,7 +620,8 @@ function cancelJob(job) {
   if (job.status === 'queued') {
     job.status = 'canceled';
   } else if (job.status === 'running' && (job._.proc || job._.abort)) {
-    job.status = 'canceled';
+    // No habilitar reintentar/eliminar hasta que el proceso anterior haya cerrado y limpiado.
+    job.status = 'canceling';
     if (job._.proc) killTree(job._.proc.pid);
     job._.abort?.abort();
   }
@@ -616,7 +638,7 @@ function jobAction(job, action) {
       flush(job);
       return processQueue();
     case 'remove':
-      if (job.status === 'running') throw new HttpError(409, 'Cancelá la descarga antes de sacarla de la lista.');
+      if (active === job) throw new HttpError(409, 'Esperá a que la tarea termine de cancelarse.');
       jobs.delete(job.id);
       return broadcast('remove', { id: job.id });
     case 'open':
@@ -641,14 +663,14 @@ function setYtdlp(patch) {
 }
 
 async function refreshVersion() {
-  const { code, out } = await run(YTDLP, ['--version']);
+  const { code, out } = await run(YTDLP, ['--ignore-config', '--version']);
   setYtdlp({ version: code === 0 ? out.trim() : null });
 }
 
 async function updateYtdlp() {
   if (ytdlp.updating || active) return;
   setYtdlp({ updating: true, message: 'Buscando actualizaciones…' });
-  const { out } = await run(YTDLP, ['-U'], { timeoutMs: 3 * 60_000 });
+  const { out } = await run(YTDLP, ['--ignore-config', '-U'], { timeoutMs: 3 * 60_000 });
   const updated = /Updated yt-dlp to (?:\S+@)?(\S+)/.exec(out);
   const lastLine = out.trim().split(/\r?\n/).pop();
   const message = updated ? `Actualizado a ${updated[1]}.`
@@ -665,10 +687,20 @@ async function updateYtdlp() {
 // ---------------------------------------------------------------------------
 // Procesos auxiliares
 
+// Los procesos que arranca el servidor (yt-dlp, ffmpeg, PowerShell): al salir se matan los que queden.
+const children = new Set();
+
+function spawnChild(file, args, options) {
+  const proc = spawn(file, args, { windowsHide: true, ...options });
+  children.add(proc);
+  proc.on('exit', () => children.delete(proc)).on('error', () => children.delete(proc));
+  return proc;
+}
+
 function run(file, args, { env, timeoutMs = 60_000 } = {}) {
   return new Promise(resolve => {
     let out = '';
-    const proc = spawn(file, args, { windowsHide: true, env: { ...process.env, ...env } });
+    const proc = spawnChild(file, args, { env: { ...process.env, ...env } });
     const timer = setTimeout(() => killTree(proc.pid), timeoutMs);
     proc.stdout.setEncoding('utf8').on('data', chunk => { out += chunk; });
     proc.stderr.setEncoding('utf8').on('data', chunk => { out += chunk; });
@@ -742,6 +774,19 @@ async function showDialog(script, env) {
 
 const clients = new Set();
 let shutdownTimer = null;
+// Al cerrarse la última ventana se espera un poco, por si solo se estaba recargando la página.
+const RELOAD_GRACE_MS = 3_000;
+
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+};
+
+function writeHead(res, status, headers) {
+  res.writeHead(status, { ...SECURITY_HEADERS, ...headers });
+}
 
 function send(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -776,40 +821,48 @@ function addLog(job, line) {
 }
 
 function openEvents(req, res) {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' });
+  writeHead(res, 200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' });
   res.write('retry: 1500\n\n');
   send(res, 'init', { settings: publicSettings(), ytdlp, jobs: [...jobs.values()].map(j => ({ ...publicJob(j), log: j._.log })) });
   clients.add(res);
   clearTimeout(shutdownTimer);
   req.on('close', () => {
     clients.delete(res);
-    if (!clients.size) scheduleShutdown(10_000);
+    if (!clients.size) scheduleShutdown(RELOAD_GRACE_MS);
   });
 }
 
-/** Cierra el servidor cuando no queda ninguna ventana (después de terminar lo pendiente). */
+/** Si dentro de `ms` no hay ninguna ventana abierta, cierra Bajalo. */
 function scheduleShutdown(ms) {
   clearTimeout(shutdownTimer);
-  shutdownTimer = setTimeout(() => {
-    if (clients.size) return;
-    if (busy()) return scheduleShutdown(5_000);
-    log('No quedan ventanas abiertas: cierro el servidor.');
-    process.exit(0);
-  }, ms);
+  shutdownTimer = setTimeout(() => { if (!clients.size) shutdown(); }, ms);
+}
+
+/** Cancela lo pendiente y sale. Al salir se matan los procesos que hayan quedado (ver serve). */
+async function shutdown() {
+  log('No quedan ventanas abiertas: cierro Bajalo.');
+  // Soltar el puerto ya: si se vuelve a abrir Bajalo.exe, que arranque un servidor nuevo y no use este.
+  httpServer.close();
+  for (const job of jobs.values()) cancelJob(job);
+  // Que la descarga cancelada borre sus archivos a medio hacer y que yt-dlp.exe no quede a medio
+  // actualizar; con un tope, por si algo se colgó.
+  const deadline = Date.now() + 30_000;
+  while ((active || ytdlp.updating) && Date.now() < deadline) await sleep(100);
+  process.exit(0);
 }
 
 // ---------------------------------------------------------------------------
 // HTTP
 
 function reply(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  writeHead(res, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
 }
 
 function serveIndex(res) {
   fs.readFile(INDEX_FILE, (err, html) => {
     if (err) return reply(res, 500, { error: err.message });
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    writeHead(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(html);
   });
 }
@@ -946,13 +999,15 @@ async function handleRequest(req, res) {
   }
 }
 
+let httpServer = null;
+
 function serve() {
-  const server = http.createServer(handleRequest);
-  server.on('error', e => {
+  httpServer = http.createServer(handleRequest);
+  httpServer.on('error', e => {
     log(e.code === 'EADDRINUSE' ? `El puerto ${PORT} está ocupado por otro programa.` : e.stack);
     process.exit(1);
   });
-  server.listen(PORT, HOST, () => log(`Escuchando en ${ORIGIN}`));
+  httpServer.listen(PORT, HOST, () => log(`Escuchando en ${ORIGIN}`));
 
   setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 20_000);
   scheduleShutdown(60_000); // por si la ventana nunca llega a abrirse
@@ -964,7 +1019,7 @@ function serve() {
   process.on('uncaughtException', e => log(e.stack));
   process.on('unhandledRejection', e => log(e?.stack || e));
   process.on('SIGINT', () => process.exit(0));
-  process.on('exit', () => { if (active?._.proc) killTree(active._.proc.pid, { sync: true }); });
+  process.on('exit', () => { for (const proc of children) if (proc.pid) killTree(proc.pid, { sync: true }); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,7 +1081,8 @@ function openWindow(url) {
 }
 
 async function launch() {
-  if (!fs.existsSync(YTDLP)) fail(`No encuentro yt-dlp.exe en ${BIN_DIR}`);
+  const missing = [YTDLP, FFMPEG, FFPROBE].filter(file => !fs.existsSync(file)).map(path.basename);
+  if (missing.length) fail(`Faltan ${missing.join(', ')} en ${BIN_DIR}.\n\nVolvé a descomprimir el ZIP de Bajalo completo.`);
   let running = await ping();
   if (running && running.build !== BUILD && (await request('POST', '/api/quit', {}))) {
     // Quedó corriendo una versión anterior del servidor y está libre: la reemplazamos.
@@ -1040,5 +1096,9 @@ async function launch() {
   else openWindow(`${ORIGIN}/`);
 }
 
-if (process.argv.includes('--serve')) serve();
-else launch();
+module.exports = { clock, hintFor, isPlaylistDownload, mergeOptions, parseUrl };
+
+if (require.main === module) {
+  if (process.argv.includes('--serve')) serve();
+  else launch();
+}

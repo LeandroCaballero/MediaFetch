@@ -1,6 +1,6 @@
 # Bajalo
 
-Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y videos, hecha sobre [yt-dlp](https://github.com/yt-dlp/yt-dlp) y [FFmpeg](https://ffmpeg.org). Para Windows.
+Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y videos, hecha sobre [yt-dlp](https://github.com/yt-dlp/yt-dlp) y [FFmpeg](https://ffmpeg.org). Para Windows 10 y 11.
 
 ![Bajalo](docs/captura.png)
 
@@ -18,19 +18,23 @@ Pegá el link de YouTube y bajalo. Una ventana simple para descargar música y v
 
 ## Instalación
 
-1. Instalá [Node.js](https://nodejs.org) 22 o más nuevo.
-2. Cloná el repo (o bajalo como ZIP).
-3. Poné en la carpeta `bin/`:
-   - [`yt-dlp.exe`](https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe)
-   - `ffmpeg.exe` y `ffprobe.exe`, que están en la carpeta `bin/` de [este ZIP](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip).
+1. Bajá **Bajalo-win64.zip** de la [última versión](https://github.com/LeandroCaballero/bajalo/releases/latest).
+2. Descomprimilo: clic derecho → **Extraer todo**.
+3. Abrí la carpeta **Bajalo** y hacé doble clic en **Bajalo.exe**.
+
+Trae todo adentro (Node.js, yt-dlp y FFmpeg): no hay que instalar nada ni pide permisos de administrador. Para desinstalarlo, borrá la carpeta.
+
+La primera vez, Windows puede avisar que "protegió tu PC" porque `Bajalo.exe` no está firmado: tocá **Más información** y después **Ejecutar de todas formas**. Para que no aparezca, antes de descomprimir: clic derecho en el ZIP → **Propiedades** → **Desbloquear**.
+
+Para actualizar, bajá el ZIP nuevo y reemplazá la carpeta. Lo que bajaste no se pierde, porque queda en **Música\Bajalo**. Si querés conservar las opciones y la clave de Groq, copiá `app\settings.json` de la carpeta vieja a la nueva.
 
 ## Uso
 
-Doble clic en **`Bajalo.bat`**. Se abre la ventana (con Edge, Chrome o Brave; si no hay ninguno, en el navegador por defecto). Pegá el link y dale a **Descargar**. Los archivos van a `bin/music` o a la carpeta que elijas.
+Doble clic en **Bajalo.exe**. Se abre la ventana (con Edge, Chrome o Brave; si no hay ninguno, en el navegador por defecto). Pegá el link y dale a **Descargar**. Los archivos van a **Música\Bajalo** o a la carpeta que elijas.
 
-Cuando cerrás la ventana, Bajalo se cierra solo. Si quedaban descargas, antes las termina.
+Cuando cerrás la ventana, Bajalo se cierra del todo en unos segundos. Si hay descargas en curso, antes te pregunta: si cerrás igual, se cancelan.
 
-`bin/download.bat` es la versión de consola: pide el link y baja el MP3 a `bin/music`, sin opciones.
+`bin\download.bat` es la versión de consola: pide el link y baja el MP3 a Música\Bajalo, sin opciones.
 
 ## Transcribir
 
@@ -42,21 +46,48 @@ Bajalo transcribe con Whisper large-v3 a través de [Groq](https://console.groq.
 
 La clave se guarda solo en `app/settings.json`, que no se sube al repo. Tené en cuenta que el audio se sube a los servidores de Groq.
 
-## Cómo está hecho
-
-Sin dependencias ni build: alcanza con Node.
-
-- `app/server.js`: servidor local que solo escucha en `127.0.0.1`. Corre yt-dlp, lee su progreso y se lo pasa a la ventana con Server-Sent Events.
-- `app/index.html`: la interfaz, en HTML, CSS y JavaScript sin frameworks.
-- `app/settings.json` y `app/server.log`: las opciones y el log de cada máquina (no se suben al repo).
-
-Para depurar, `node app/server.js --serve` corre el servidor en primer plano en http://127.0.0.1:17865.
-
 ## Si algo falla
 
-- **HTTP Error 403**: casi siempre es yt-dlp desactualizado. Tocá **Actualizar**, abajo de la ventana, y reintentá. Bajalo ya le pasa `--js-runtimes node` a yt-dlp: sin un motor de JavaScript, YouTube también responde 403, y yt-dlp solo busca Deno si no se le indica otro.
+- **"Windows protegió tu PC"**: ver [Instalación](#instalación).
+- **HTTP Error 403**: casi siempre es yt-dlp desactualizado. Tocá **Actualizar**, abajo de la ventana, y reintentá.
 - **"Sign in to confirm you're not a bot"**: YouTube está frenando tu conexión. Esperá un rato o probá desde otra red.
 - Cada descarga tiene un botón **Detalles** con la salida completa de yt-dlp.
+
+## Cómo está hecho
+
+Sin paquetes npm ni frameworks: alcanza con Node, que viene adentro del ZIP.
+
+- `Bajalo.exe` ([`launcher/Bajalo.cs`](launcher/Bajalo.cs)): lanzador sin consola. Corre `bin\node.exe app\server.js` y, si algo falla, muestra el error en un cartel.
+- `app/server.js`: servidor local que solo escucha en `127.0.0.1`. Corre yt-dlp, lee su progreso y se lo pasa a la ventana con Server-Sent Events. Se cierra cuando se cierra la ventana.
+- `app/index.html`: la interfaz, en HTML, CSS y JavaScript sin frameworks.
+- `tools/build.js`: arma la carpeta portátil y el ZIP, con las versiones y los SHA-256 de Node, yt-dlp y FFmpeg que fija `tools/dependencies.json`.
+- `app/settings.json` y `app/server.log`: las opciones y el log de cada máquina (no se suben al repo).
+
+## Desarrollo
+
+Hace falta Node.js 22 o más nuevo, en Windows o en WSL:
+
+```text
+node tools/build.js
+node --test
+```
+
+El primero baja Node, yt-dlp y FFmpeg a `bin/` y compila `Bajalo.exe` con el compilador de C# que trae Windows; después, doble clic en `Bajalo.exe`. Para depurar, `node app/server.js --serve` corre el servidor en primer plano en http://127.0.0.1:17865.
+
+## Publicar una versión
+
+```text
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+La Action [Release](.github/workflows/release.yml) arma `Bajalo-win64.zip` en un Windows de GitHub y lo publica como Release, con su SHA-256. Para probar el ZIP sin publicarlo: **Actions → Release → Run workflow**, y queda como artefacto. El repo tiene que ser público para que cualquiera pueda bajar los Releases.
+
+En un repo público, cada ZIP sale con una certificación de GitHub que dice de qué commit de este repo se armó. Se verifica con:
+
+```text
+gh attestation verify Bajalo-win64.zip --repo LeandroCaballero/bajalo
+```
 
 ## Aviso
 
@@ -64,4 +95,4 @@ Bajá solo contenido que tengas derecho a descargar, respetando los derechos de 
 
 ## Licencia
 
-[MIT](LICENSE). yt-dlp y FFmpeg no se incluyen en el repo y tienen sus propias licencias (Unlicense y GPL/LGPL).
+[MIT](LICENSE). Node.js, yt-dlp y FFmpeg, que vienen dentro del ZIP, tienen sus propias licencias: ver [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

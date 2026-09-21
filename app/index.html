@@ -267,7 +267,7 @@
 </main>
 
 <div id="toast" class="toast" role="status" hidden></div>
-<div id="offline" class="offline" role="alert" hidden>Se cortó la conexión con Bajalo. Cerrá esta ventana y volvé a abrir Bajalo.bat.</div>
+<div id="offline" class="offline" role="alert" hidden>Se cortó la conexión con Bajalo. Cerrá esta ventana y volvé a abrir Bajalo.</div>
 
 <template id="job-template">
   <li class="job">
@@ -302,6 +302,7 @@ const QUALITIES = {
 const ACTIONS = {
   queued: ['remove'],
   running: ['cancel', 'log'],
+  canceling: ['log'],
   done: ['open', 'reveal', 'log', 'remove'],
   error: ['retry', 'log', 'remove'],
   canceled: ['retry', 'remove'],
@@ -408,6 +409,8 @@ function statusText(job) {
       if (job.eta != null && job.percent != null && job.percent < 100) parts.push(`quedan ${formatDuration(job.eta)}`);
       return parts.join(' · ');
     }
+    case 'canceling':
+      return 'Cancelando…';
     case 'done': {
       if (job.already && !job.item) return 'Ya estaba descargado';
       const parts = ['✓ Listo'];
@@ -649,6 +652,14 @@ $('#jobs').addEventListener('click', e => {
   const id = button.closest('.job').dataset.id;
   if (button.dataset.act === 'log') return toggleLog(id);
   api('/api/jobs/action', { id, action: button.dataset.act }).catch(err => toast(err.message));
+});
+
+// Cerrar la ventana cierra Bajalo y cancela lo que se está bajando: que el navegador pregunte antes.
+window.addEventListener('beforeunload', e => {
+  if ([...jobs.values()].some(job => job.status === 'queued' || job.status === 'running')) {
+    e.preventDefault();
+    e.returnValue = true; // navegadores que no respetan preventDefault
+  }
 });
 </script>
 </body>

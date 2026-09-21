@@ -1,7 +1,11 @@
-# bin/ es local: yt-dlp.exe, ffmpeg.exe, lo que se descarga (bin/music) y cualquier otra
+# bin/ es local: node.exe, yt-dlp.exe y FFmpeg (los baja tools/build.js) y cualquier otra
 # cosa que pongas ahí. Del repo solo se versiona la versión de consola.
 bin/*
 !bin/download.bat
+
+# Lo que arma tools/build.js: el lanzador compilado, el ZIP y las descargas que guarda
+/Bajalo.exe
+/dist/
 
 # Estado de la app en cada máquina
 app/settings.json

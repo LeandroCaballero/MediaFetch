@@ -1,0 +1,30 @@
+{
+  "Node.js": {
+    "version": "24.21.0",
+    "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+    "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+    "files": {
+      "node-v24.21.0-win-x64/node.exe": "node.exe",
+      "node-v24.21.0-win-x64/LICENSE": "licenses/node-LICENSE.txt"
+    }
+  },
+  "yt-dlp": {
+    "version": "2026.08.19",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+    "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+    "files": {
+      "yt-dlp.exe": "yt-dlp.exe"
+    }
+  },
+  "FFmpeg": {
+    "version": "9.0.2",
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+    "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+    "files": {
+      "ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe": "ffmpeg.exe",
+      "ffmpeg-9.0.2-essentials_build/bin/ffprobe.exe": "ffprobe.exe",
+      "ffmpeg-9.0.2-essentials_build/LICENSE": "licenses/ffmpeg-LICENSE.txt",
+      "ffmpeg-9.0.2-essentials_build/README.txt": "licenses/ffmpeg-README.txt"
+    }
+  }
+}
